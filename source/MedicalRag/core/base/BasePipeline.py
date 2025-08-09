@@ -1,3 +1,3 @@
 """
-所有Pipeline的抽象基类
+抽象Pipeline：run()/steps/上下文与事件总线
 """
