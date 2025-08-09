@@ -1,2 +1,8 @@
 **/data/
 *.bin
+
+# 忽略 foo/ 目录下所有直接子项
+/Milvus/*
+# 但不要忽略 a 和 b
+!/Milvus/examples.py
+!/Milvus/standalone_embed.sh

@@ -40,17 +40,14 @@ EOF
         exit 1
     fi
     
-   docker run -d \
+    docker run -d \
         --name milvus-standalone \
-        --gpus all \
         --security-opt seccomp:unconfined \
         -e ETCD_USE_EMBED=true \
         -e ETCD_DATA_DIR=/var/lib/milvus/etcd \
         -e ETCD_CONFIG_PATH=/milvus/configs/embedEtcd.yaml \
         -e COMMON_STORAGETYPE=local \
-        -e MILVUS_ENABLE_GPU=true \
-        -e MILVUS_GPU_SEARCH_THRESHOLD=1000 \
-        -e MILVUS_GPU_RESOURCE_CONFIG=gpu1 \
+        -e DEPLOY_MODE=STANDALONE \
         -v $(pwd)/volumes/milvus:/var/lib/milvus \
         -v $(pwd)/embedEtcd.yaml:/milvus/configs/embedEtcd.yaml \
         -v $(pwd)/user.yaml:/milvus/configs/user.yaml \
@@ -135,11 +132,17 @@ delete_container() {
 }
 
 delete() {
-    delete_container
-    rm -rf $(pwd)/volumes
-    rm -rf $(pwd)/embedEtcd.yaml
-    rm -rf $(pwd)/user.yaml
-    echo "Delete successfully."
+    read -p "Please confirm if you'd like to proceed with the delete. This operation will delete the container and data. Confirm with 'y' for yes or 'n' for no. > " check
+    if [ "$check" == "y" ] ||[ "$check" == "Y" ];then
+        delete_container
+        rm -rf $(pwd)/volumes
+        rm -rf $(pwd)/embedEtcd.yaml
+        rm -rf $(pwd)/user.yaml
+        echo "Delete successfully."
+    else
+        echo "Exit delete"
+        exit 0
+    fi
 }
 
 upgrade() {
