@@ -1,0 +1,8 @@
+# config/extension.toml
+
+[extension]
+name = "MedicalRag"
+version = "0.1.0"
+description = "Medical RAG system using LangChain + Milvus"
+author = "weihua li"
+repository = "https://github.com/yolo-hyl/medical-rag"

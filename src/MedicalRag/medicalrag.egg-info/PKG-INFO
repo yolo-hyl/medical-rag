@@ -1,0 +1,28 @@
+Metadata-Version: 2.4
+Name: medicalrag
+Version: 0.1.0
+Summary: A RAG framework for medical QA using LangChain and Milvus
+Author-email: weihua li <zjl4376@gmail.com>
+Project-URL: Homepage, https://github.com/yolo-hyl/medical-rag
+Project-URL: Repository, https://github.com/yolo-hyl/medical-rag
+Project-URL: Issues, https://github.com/yolo-hyl/medical-rag/issues
+Requires-Python: >=3.9
+Requires-Dist: langchain>=0.2.0
+Requires-Dist: langchain-openai>=0.1.0
+Requires-Dist: pymilvus>=2.4.0
+Requires-Dist: pydantic>=2.5
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn[standard]>=0.23
+Requires-Dist: typer>=0.12
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: tqdm>=4.66
+Requires-Dist: rich>=13.7
+Requires-Dist: tomli; python_version < "3.11"
+Provides-Extra: dev
+Requires-Dist: pytest>=7; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+Requires-Dist: mypy>=1.8; extra == "dev"
+Requires-Dist: black>=24.3; extra == "dev"
+Requires-Dist: isort>=5.13; extra == "dev"
+Requires-Dist: build>=1.2; extra == "dev"
+Requires-Dist: twine>=5.0; extra == "dev"
