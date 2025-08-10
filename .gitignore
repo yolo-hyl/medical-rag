@@ -6,3 +6,11 @@
 # 但不要忽略 a 和 b
 !/Milvus/examples.py
 !/Milvus/standalone_embed.sh
+
+# Python
+.DS_Store
+**/*.egg-info/
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+**/*.pb

@@ -15,8 +15,14 @@
             "name": "标注数据",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/src/data/annotation/call_ollama.py",
-            "console": "integratedTerminal"
+            "program": "${workspaceFolder}/scripts/annotation.py",
+            "console": "integratedTerminal",
+            // "args": [
+            //     "data/raw/qa/train_datasets.jsonl",
+            //     "-o", "data/tf-data/qa",
+            //     "--ollama-url", "http://localhost:11434",
+            //     "--model", "qwen3:32b"
+            // ]
         }
     ]
 }
