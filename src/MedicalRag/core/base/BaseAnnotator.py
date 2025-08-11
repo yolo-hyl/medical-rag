@@ -22,15 +22,6 @@ class BaseAnnotatorCfg(BaseModel):
     save_intermediate: bool = Field(True, description="是否保存批量中间结果")
     output_file_path: str = Field("qwen3:32b", description="保存的文件路径")
     
-    @field_validator("output_file_path")
-    def check_file_exists(cls, v):
-        # 确保路径指向一个存在的文件
-        absolute_path = v.resolve()
-        if absolute_path.is_dir():
-            return absolute_path
-        else:
-            raise ValueError("输出文件路径不存在")
-    
 class BaseAnnotator(ABC):
     """QA问答对自动标注器"""
 
@@ -181,8 +172,8 @@ class BaseAnnotator(ABC):
             results.extend(batch_results)
             
             # 保存中间结果
-            if self.save_intermediate and self.output_file:
-                self._save_intermediate_results(results, self.output_file, i + self.batch_size)
+            if self.save_intermediate and self.output_file_path:
+                self._save_intermediate_results(results, self.output_file_path, i + self.batch_size)
             
             # 输出进度信息
             self._log_progress(i + self.batch_size, total_count)
@@ -209,11 +200,11 @@ class BaseAnnotator(ABC):
         current_count: int
     ):
         """保存中间结果"""
-        temp_file = output_file.with_suffix(f'.temp_{current_count}.json')
+        temp_file = Path(output_file).with_suffix(f'.temp_{current_count}.json')
         try:
             with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(
-                    [result.model_dump() for result in results],
+                    [r.model_dump(mode="json") for r in results],
                     f,
                     ensure_ascii=False
                 )
@@ -250,7 +241,7 @@ class BaseAnnotator(ABC):
         try:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(
-                    [ann.model_dump() for ann in annotations],
+                    [ann.model_dump(mode="json") for ann in annotations],
                     f,
                     ensure_ascii=False,
                     indent=2

@@ -18,10 +18,12 @@
             "program": "${workspaceFolder}/scripts/annotation.py",
             "console": "integratedTerminal",
             "args": [
-                "data/test.jsonl",
-                "-o", "data/tf-data/qa",
+                "raw_data/test.jsonl",
+                "-output-dir", "raw_data/tf-data/qa",
                 "--ollama-url", "http://localhost:11434",
-                "--model", "qwen3:32b"
+                "--model", "qwen3:32b",
+                "--batch-size", "1000",
+                "--max-retries", "10"
             ]
         }
     ]

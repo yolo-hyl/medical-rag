@@ -17,7 +17,7 @@ from MedicalRag.schemas.metadata import (
     CategoryEnum
 )
 from MedicalRag.config.prompts import ANNOTATION_PROMPT
-from MedicalRag.core.base import BaseAnnotator
+from MedicalRag.core.base.BaseAnnotator import BaseAnnotator
 from MedicalRag.core.base.BaseClient import LLMHttpClient
 from MedicalRag.core.base.BaseAnnotator import BaseAnnotatorCfg
 from MedicalRag.config.prompts import ANNOTATION_PROMPT, ANNOTATION_SYS_PROMPT
@@ -43,6 +43,7 @@ class QAAnnotator(BaseAnnotator):
         super().__init__(cfg)
         self.annotation_stats["department_distribution"] = {}
         self.annotation_stats["category_distribution"] = {}
+
     
     def build_prompt(
         self, 
@@ -57,7 +58,7 @@ class QAAnnotator(BaseAnnotator):
         self, 
         llm_result: Dict[str, Any],
         single_data: dict,
-        target_model: BaseModel
+        target_model: QAAnnotationResponse
     ) -> QAAnnotationResponse:
         """
         解析结构化输出

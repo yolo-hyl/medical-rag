@@ -10,14 +10,11 @@ from pathlib import Path
 from typing import List
 import sys
 
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(project_root))
-
 from MedicalRag.data.annotator.qa_annotator import QAAnnotator
-from MedicalRag.data.loader.jsonl_loader import JSONLLoader
+from MedicalRag.data.loader.huatuo_qa_jsonl_loader import JSONLLoader
 from MedicalRag.core.base.BaseAnnotator import BaseAnnotatorCfg
 from MedicalRag.core.base.BaseClient import LLMHttpClientCfg
+from MedicalRag.core.llm.client import OllamaClientCfg, OllamaClient
 from MedicalRag.schemas.metadata import QAAnnotationResponse
 
 # 配置日志
@@ -26,7 +23,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main():
     """主函数"""
@@ -42,6 +39,7 @@ def main():
     
     # 验证输入文件
     input_file = Path(args.input_file)
+    print(input_file)
     if not input_file.exists():
         logger.error(f"输入文件不存在: {input_file}")
         return
@@ -51,7 +49,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 配置LLM客户端
-    llm_config = LLMHttpClientCfg(
+    llm_config = OllamaClientCfg(
         base_url=args.ollama_url,
         model=args.model,
         thinking_model=True
@@ -70,7 +68,8 @@ def main():
     # 初始化组件
     loader = JSONLLoader()
     annotator = QAAnnotator(annotator_config)
-    
+    ollama_cfg = OllamaClientCfg()
+    annotator.client = OllamaClient(ollama_cfg)
     # 检查服务连接
     if not annotator.client.health_check():
         logger.error(f"无法连接到Ollama服务: {args.ollama_url}")
@@ -94,7 +93,6 @@ def main():
         qa_data = []
         for i, (question, answer) in enumerate(qa_pairs):
             qa_data.append({
-                "id": i + 1,
                 "question": question,
                 "answer": answer
             })

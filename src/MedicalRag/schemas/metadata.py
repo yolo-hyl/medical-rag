@@ -73,7 +73,7 @@ class QAAnnotationResponse(BaseModel):
         description="自动生成的唯一ID"
     )
     question: str = Field(..., description="问题")
-    answers: str = Field(..., description="答案")
+    answer: str = Field(..., description="答案")
     departments: List[DepartmentEnum] = Field(..., description="推荐科室")
     categories: List[CategoryEnum] = Field(..., description="问题类别")
     reasoning: str = Field(..., description="标注理由")
@@ -88,13 +88,7 @@ class JSONLRecord(BaseModel):
     def to_qa_pairs(self) -> List[tuple[str, str]]:
         """转换为QA对"""
         qa_pairs = []
-        for question in self.questions[0]:
-            # 如果question是列表，取第一个作为主问题
-            if isinstance(question, list):
-                main_question = question[0] if question else ""
-            else:
-                main_question = question
-                
-            for answer in self.answers:
-                qa_pairs.append((main_question, answer))
+        assert isinstance(self.questions[0][0], str)
+        assert isinstance(self.answers[0], str)
+        qa_pairs.append((self.questions[0][0], self.answers[0]))
         return qa_pairs

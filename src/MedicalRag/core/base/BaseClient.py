@@ -31,12 +31,12 @@ class LLMHttpClient(ABC):
         self,
         cfg: LLMHttpClientCfg
     ) -> None:
-        self.base_url = cfg.base_url.rstrip('/')
+        self.base_url = cfg.base_url
         self.model =cfg.model
         self.timeout = cfg.timeout
         self.client = httpx.Client(
             timeout=cfg.timeout,
-            proxies=cfg.proxies
+            proxy=cfg.proxies
         )
         self.thinking_model = cfg.thinking_model
         self.url = cfg.url
@@ -107,9 +107,9 @@ class LLMHttpClient(ABC):
                 return result
                 
         except httpx.RequestError as e:
-            raise ConnectionError(f"Failed to connect to Ollama: {e}")
+            raise ConnectionError(f"Failed to connect to HTTP: {e}")
         except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"Ollama API error: {e.response.status_code} - {e.response.text}")
+            raise RuntimeError(f"HTTP API error: {e.response.status_code} - {e.response.text}")
         
     def generate_completion(
         self, 
