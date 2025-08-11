@@ -20,6 +20,7 @@ class BaseAnnotatorCfg(BaseModel):
     system_prompt: Optional[str] = Field(None, description="系统提示词")
     batch_size: int = Field(5, description="批量大小")
     save_intermediate: bool = Field(True, description="是否保存批量中间结果")
+    checkpoint_num: int = Field(2, description="积累定量数据保存一次")
     output_file_path: str = Field("qwen3:32b", description="保存的文件路径")
     
 class BaseAnnotator(ABC):
@@ -44,6 +45,7 @@ class BaseAnnotator(ABC):
         self.max_retries = cfg.max_retries
         self.client = LLMHttpClient(cfg.llm_config)
         self.max_retries = cfg.max_retries
+        self.checkpoint_num = cfg.checkpoint_num
         self.annotation_stats = {
             "total": 0,
             "success": 0,
@@ -172,7 +174,7 @@ class BaseAnnotator(ABC):
             results.extend(batch_results)
             
             # 保存中间结果
-            if self.save_intermediate and self.output_file_path:
+            if self.save_intermediate and self.output_file_path and len(results) % self.checkpoint_num == 0:
                 self._save_intermediate_results(results, self.output_file_path, i + self.batch_size)
             
             # 输出进度信息
@@ -217,11 +219,11 @@ class BaseAnnotator(ABC):
         progress = (current / total) * 100
         success_rate = (self.annotation_stats["success"] / 
                        max(self.annotation_stats["total"], 1)) * 100
-        
-        logger.info(
-            f"进度: {current}/{total} ({progress:.1f}%), "
-            f"成功率: {success_rate:.1f}%"
-        )
+        if int(progress) % 10 == 0:
+            logger.info(
+                f"进度: {current}/{total} ({progress:.1f}%), "
+                f"成功率: {success_rate:.1f}%"
+            )
     
     def _log_final_stats(self):
         """输出最终统计信息"""

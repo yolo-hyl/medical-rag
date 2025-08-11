@@ -1,7 +1,4 @@
 {
-    // 使用 IntelliSense 了解相关属性。 
-    // 悬停以查看现有属性的描述。
-    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
@@ -18,11 +15,11 @@
             "program": "${workspaceFolder}/scripts/annotation.py",
             "console": "integratedTerminal",
             "args": [
-                "raw_data/test.jsonl",
-                "-output-dir", "raw_data/tf-data/qa",
+                "raw_data/raw/qa/train_datasets.jsonl",
+                "--output-dir", "raw_data/tf-data/qa",
                 "--ollama-url", "http://localhost:11434",
                 "--model", "qwen3:32b",
-                "--batch-size", "1000",
+                "--batch-size", "1",
                 "--max-retries", "10"
             ]
         }

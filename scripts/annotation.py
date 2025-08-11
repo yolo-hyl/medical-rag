@@ -60,6 +60,7 @@ def main():
         llm_config=llm_config,
         max_retries=args.max_retries,
         batch_size=args.batch_size,
+        checkpoint_num=10,
         save_intermediate=True,
         output_file_path=str(output_dir),
         system_prompt="你是一个专业的医疗问答标注专家，请严格按照要求输出JSON格式的标注结果。"
