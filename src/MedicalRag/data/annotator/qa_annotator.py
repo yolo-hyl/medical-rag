@@ -20,6 +20,7 @@ from MedicalRag.config.prompts import ANNOTATION_PROMPT
 from MedicalRag.core.base import BaseAnnotator
 from MedicalRag.core.base.BaseClient import LLMHttpClient
 from MedicalRag.core.base.BaseAnnotator import BaseAnnotatorCfg
+from MedicalRag.config.prompts import ANNOTATION_PROMPT, ANNOTATION_SYS_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,18 @@ class QAAnnotator(BaseAnnotator):
         self.annotation_stats["department_distribution"] = {}
         self.annotation_stats["category_distribution"] = {}
     
+    def build_prompt(
+        self, 
+        single_data: dict
+    ):
+        return ANNOTATION_PROMPT.format(
+            question=single_data['question'],
+            answer=single_data['answer']
+        )
     
     def parse_structured_output(
         self, 
-        llm_result: str, 
+        llm_result: Dict[str, Any],
         single_data: dict,
         target_model: BaseModel
     ) -> QAAnnotationResponse:
@@ -60,9 +69,11 @@ class QAAnnotator(BaseAnnotator):
         Returns:
             解析后的模型实例
         """
+        # 从llm_result中提取答案文本
+        response_text = llm_result.get("answer", llm_result.get("raw_content", ""))
         # 尝试提取JSON部分
         json_pattern = r'```json\s*(.*?)\s*```'
-        json_match = re.search(json_pattern, llm_result, re.DOTALL)
+        json_match = re.search(json_pattern, response_text, re.DOTALL)
         
         if json_match:
             json_str = json_match.group(1)

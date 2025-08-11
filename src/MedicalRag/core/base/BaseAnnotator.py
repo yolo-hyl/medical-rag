@@ -62,8 +62,7 @@ class BaseAnnotator(ABC):
     @abstractmethod
     def build_prompt(
         self,
-        single_data: dict,
-        system_prompt: str
+        single_data: dict
     ):
         pass
     
@@ -85,7 +84,7 @@ class BaseAnnotator(ABC):
             标注结果，失败时返回None
         """
         self.annotation_stats["total"] += 1
-        prompt = self.build_prompt(single_data=single_data, system_prompt=system_prompt)
+        prompt = self.build_prompt(single_data=single_data)
         for attempt in range(self.max_retries):
             try:                
                 # 调用LLM进行标注
@@ -120,7 +119,7 @@ class BaseAnnotator(ABC):
     @abstractmethod
     def parse_structured_output(
         self, 
-        llm_result: str, 
+        llm_result: Dict[str, Any],
         single_data: dict,
         target_model: BaseModel
     ) -> BaseModel:
