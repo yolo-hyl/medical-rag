@@ -1,4 +1,4 @@
-**/data/
+**/raw_data/
 *.bin
 
 # 忽略 foo/ 目录下所有直接子项

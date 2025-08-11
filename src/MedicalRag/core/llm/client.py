@@ -8,34 +8,31 @@ import re
 import json
 import httpx
 from typing import Dict, Any, Optional, Union
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, HttpUrl
 import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential
-from MedicalRag.core.base.BaseClient import LLMHttpClient
+from MedicalRag.core.base.BaseClient import LLMHttpClient, LLMHttpClientCfg
+
+class OllamaClientCfg(LLMHttpClientCfg):
+    health_check_url : str = Field("/api/tags", description="LLM API 信息URL")
+    timeout: float = Field(10, description="超时时间")
 
 class OllamaClient(LLMHttpClient):
     """Ollama客户端，处理与本地Ollama服务的交互"""
     
     def __init__(
         self, 
-        base_url: str = "http://localhost:11434",
-        model: str = "qwen3:32b",
-        timeout: float = 60.0,
-        thinking_model: bool = True,
-        url: str = "/api/chat"
+        cfg: OllamaClientCfg
     ):
         super().__init__(
-            base_url = base_url,
-            model = model,
-            timeout = timeout,
-            thinking_model = thinking_model,
-            url = url
+            cfg=cfg
         )
+        self.health_check_url = cfg.health_check_url
     
     def health_check(self) -> bool:
         """检查Ollama服务健康状态"""
         try:
-            response = self.client.get(f"{self.base_url}/api/tags")
+            response = self.client.get(self.base_url + self.health_check_url)
             return response.status_code == 200
         except:
             return False
@@ -43,7 +40,7 @@ class OllamaClient(LLMHttpClient):
     def list_models(self) -> list[str]:
         """列出可用模型"""
         try:
-            response = self.client.get(f"{self.base_url}/api/tags")
+            response = self.client.get(self.base_url + self.health_check_url)
             if response.status_code == 200:
                 data = response.json()
                 return [model["name"] for model in data.get("models", [])]
@@ -62,13 +59,11 @@ class AsyncOllamaClient:
     
     def __init__(
         self, 
-        base_url: str = "http://localhost:11434",
-        model: str = "qwen3:32b",
-        timeout: float = 60.0
+        cfg: OllamaClientCfg
     ):
-        self.base_url = base_url.rstrip('/')
-        self.model = model
-        self.timeout = timeout
+        self.base_url = cfg.base_url
+        self.model = cfg.model
+        self.timeout = cfg.timeout
     
     async def __aenter__(self):
         self.client = httpx.AsyncClient(timeout=self.timeout)

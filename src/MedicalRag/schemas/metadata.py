@@ -69,7 +69,7 @@ class QAAnnotationRequest(BaseModel):
 class QAAnnotationResponse(BaseModel):
     """LLM标注响应模型"""
     id: UUID = Field(
-        default_factory=str("QA-" + uuid4), 
+        default_factory=uuid4, 
         description="自动生成的唯一ID"
     )
     question: str = Field(..., description="问题")

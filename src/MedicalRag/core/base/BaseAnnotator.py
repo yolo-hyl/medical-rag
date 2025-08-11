@@ -51,9 +51,7 @@ class BaseAnnotator(ABC):
         self.batch_size = cfg.batch_size
         self.system_prompt = cfg.system_prompt
         self.max_retries = cfg.max_retries
-        self.client = LLMHttpClient(
-            cfg.llm_config
-        )
+        self.client = LLMHttpClient(cfg.llm_config)
         self.max_retries = cfg.max_retries
         self.annotation_stats = {
             "total": 0,

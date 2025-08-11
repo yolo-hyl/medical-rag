@@ -17,12 +17,12 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/annotation.py",
             "console": "integratedTerminal",
-            // "args": [
-            //     "data/raw/qa/train_datasets.jsonl",
-            //     "-o", "data/tf-data/qa",
-            //     "--ollama-url", "http://localhost:11434",
-            //     "--model", "qwen3:32b"
-            // ]
+            "args": [
+                "data/test.jsonl",
+                "-o", "data/tf-data/qa",
+                "--ollama-url", "http://localhost:11434",
+                "--model", "qwen3:32b"
+            ]
         }
     ]
 }
