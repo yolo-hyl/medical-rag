@@ -22,6 +22,34 @@
                 "--batch-size", "1",
                 "--max-retries", "10"
             ]
+        },
+        {
+            "name": "测试稀疏向量构建",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test/test_sparse.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "测试入库",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pot/insert.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "测试查询",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pot/search.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "测试pipeline",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/db.py",
+            "console": "integratedTerminal"
         }
     ]
 }

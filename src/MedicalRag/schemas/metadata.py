@@ -34,13 +34,13 @@ class CategoryEnum(int, Enum):
 
 class QAMetadata(BaseModel):
     """QA记录元数据模型"""
-    id: int = Field(..., description="唯一标识符")
+    id: str = Field(..., description="唯一标识符")
     question: str = Field(..., description="问题文本")
     answer: str = Field(..., description="答案文本")
     
     # 向量字段
     dense_vec_q: Optional[List[float]] = Field(None, description="问题嵌入向量")
-    dense_vec_a: Optional[List[float]] = Field(None, description="答案嵌入向量") 
+    dense_vec_a: Optional[List[float]] = Field(None, description="答案嵌入向量")
     dense_vec_qa: Optional[List[float]] = Field(None, description="问题+答案嵌入向量")
     sparse_vec_a: Optional[Dict[int, float]] = Field(None, description="答案稀疏向量")
     sparse_vec_qa: Optional[Dict[int, float]] = Field(None, description="问题+答案稀疏向量")

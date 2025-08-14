@@ -87,7 +87,7 @@ class BaseAnnotator(ABC):
                 )
                 
                 # 解析结构化输出
-                annotation : base_model = self.parse_structured_output(
+                annotation : BaseModel = self.parse_structured_output(
                     llm_result=result, 
                     single_data=single_data,
                     target_model=base_model
@@ -219,7 +219,7 @@ class BaseAnnotator(ABC):
         progress = (current / total) * 100
         success_rate = (self.annotation_stats["success"] / 
                        max(self.annotation_stats["total"], 1)) * 100
-        if int(progress) % 10 == 0:
+        if int(progress) % 10 == 0 and int(progress) != 0:
             logger.info(
                 f"进度: {current}/{total} ({progress:.1f}%), "
                 f"成功率: {success_rate:.1f}%"
