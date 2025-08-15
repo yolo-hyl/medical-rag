@@ -17,7 +17,7 @@
             "args": [
                 "raw_data/raw/qa/train_datasets.jsonl",
                 "--output-dir", "raw_data/tf-data/qa",
-                "--ollama-url", "http://localhost:11434",
+                "--ollama-url", "http://hadoop001:11434",
                 "--model", "qwen3:32b",
                 "--batch-size", "1",
                 "--max-retries", "10"

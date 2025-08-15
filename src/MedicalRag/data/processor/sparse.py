@@ -3,6 +3,10 @@ from typing import List, Dict, Iterable, Iterator
 import pkuseg
 from multiprocessing import Pool, cpu_count
 import os, gzip, pickle, math
+from pathlib import Path
+
+current_dir = Path(__file__).resolve().parent
+default_vocab_dir = current_dir / "vocab"
 
 # ====== worker 全局 ======
 _SEG = None  # 每个子进程里各自持有一个分词器
@@ -73,13 +77,23 @@ class Vocabulary:
             "idf_arr": self.idf_arr,
         }
         data = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
-        tmp = path + ".tmp"
+        
+        if '/' not in path:  # 没有自定义绝对路径 , 自动保存在当前目录下的vocab文件夹
+            tmp = str(default_vocab_dir) + ".tmp"
+            path = str(default_vocab_dir) + ".tmp"
+        else:
+            tmp = path + ".tmp"
+            
         with (gzip.open(tmp, "wb") if compress else open(tmp, "wb")) as f:
             f.write(data)
         os.replace(tmp, path)  # 原子替换，防止中途写坏
 
     @classmethod
-    def load(cls, path: str):
+    def load(cls, path_or_name: str):
+        
+        if '/' not in path_or_name:  # 直接传入的名字
+            path = str(default_vocab_dir) + "/" + path_or_name
+            
         with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as f:
             state = pickle.load(f)
         v = cls()
