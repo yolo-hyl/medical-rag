@@ -1,0 +1,27 @@
+embedding:
+  dense:
+    provider: ollama                  # ollama | openai | hf
+    model: "nomic-embed-text"
+    base_url: "http://172.16.40.51:11434"
+    dim: 768
+    normalize: false
+    prefixes:
+      query: "search_query:"
+      document: "search_document:"
+  sparse_bm25:
+    vocab_path: "vocab.pkl.gz"
+    domain_model: "medicine"
+    prune_empty_sparse: true
+    empty_sparse_fallback: { "0": 0.0 } # 字典 key 会被转 int
+    stopwords: ["什么","？","是","如何"]
+    k1: 1.5
+    b: 0.75
+
+
+runtime:
+  concurrency: 4
+  timeout_ms: 120000
+  retries: 2
+
+logging:
+  level: INFO

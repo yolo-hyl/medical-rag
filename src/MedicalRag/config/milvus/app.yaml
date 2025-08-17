@@ -1,0 +1,11 @@
+app:
+  env: dev
+  log_level: INFO
+
+runtime:
+  concurrency: 4
+  timeout_ms: 120000
+  retries: 2
+
+logging:
+  level: INFO

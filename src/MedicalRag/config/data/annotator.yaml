@@ -1,0 +1,108 @@
+# 数据集配置
+dataset:
+  # 数据集类型: json, csv, parquet, huggingface
+  type: "json"
+  # 数据文件路径
+  data_files: "/home/weihua/medical-rag/raw_data/test.jsonl"
+  # 数据集分割，对于本地文件通常是 "train"
+  split: "train"
+  # 可选：如果是huggingface数据集，指定数据集名称
+  # name: "your/dataset-name"
+
+# LLM客户端配置
+llm_client:
+  # 客户端类型: ollama, vllm, openai, local
+  type: "ollama"
+  # 模型名称
+  model_name: "qwen3:32b"
+  
+  # Ollama客户端配置
+  ollama:
+    base_url: "http://localhost:11434"
+    timeout: 60
+    max_concurrent: 8
+  
+  # vLLM客户端配置
+  vllm:
+    base_url: "http://localhost:8000"
+    timeout: 60
+    max_tokens: 512
+    temperature: 0.1
+  
+  # OpenAI客户端配置
+  openai:
+    api_key: null  # 如果为null，将从环境变量OPENAI_API_KEY获取
+    model_name: "gpt-3.5-turbo"
+    max_tokens: 512
+    temperature: 0.1
+    max_concurrent: 5
+    proxy: "http://localhost:10809"
+  
+  # 本地模型配置
+  local:
+    device: "auto"  # auto, cuda, cpu
+    torch_dtype: "float16"  # float16, float32
+    max_new_tokens: 512
+    temperature: 0.1
+    do_sample: true
+
+# 标注任务配置
+labeling:
+  # 批处理大小
+  batch_size: 8
+  # 最大重试次数
+  max_retries: 3
+  # 重试延迟（秒）
+  retry_delay: 1.0
+  # 检查点保存间隔
+  checkpoint_interval: 16
+  # 输出目录
+  output_dir: "/home/weihua/medical-rag/raw_data/out"
+  # 最大工作线程数
+  max_workers: 4
+  # 是否从检查点恢复
+  resume_from_checkpoint: true
+
+# Prompt配置
+prompt:
+  # 使用配置文件中的模板还是从外部文件读取
+  use_template_from_config: false
+  # 如果use_template_from_config为true，这里定义模板
+  template: |
+    请根据以下医疗问答内容，分析并标注相关的科室和类别信息。
+
+    问题：{question}
+    回答：{answer}
+
+    请以JSON格式返回标注结果：
+    ```json
+    {{
+      "departments": ["科室1", "科室2"],
+      "categories": ["类别1", "类别2"]
+    }}
+    ```
+  # 如果use_template_from_config为false，从这个模块导入
+  template_module: "MedicalRag.config.prompts"
+  template_variable: "ANNOTATION_PROMPT"
+  system_prompt_module: "MedicalRag.config.prompts"
+  system_prompt_variable: "ANNOTATION_SYS_PROMPT"
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_file: "labeling.log"
+  # 日志格式
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+
+# 输出配置
+output:
+  # 保存格式: json, parquet, csv, dataset
+  formats: ["json", "dataset"]
+  # 检查点文件名
+  checkpoint_file: "checkpoint.json"
+  # 失败样本文件名
+  failed_file: "failed_samples.json"
+  # 结果文件名
+  results_file: "labeled_dataset.json"
+  # Dataset保存目录名
+  dataset_dir: "labeled_dataset"

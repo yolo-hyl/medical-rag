@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 from MedicalRag.core.base.BaseClient import LLMHttpClientCfg
 import re
-from MedicalRag.core.llm.client import LLMHttpClient
+from MedicalRag.core.llm.HttpClient import LLMHttpClient
 from abc import ABC, abstractmethod
 from tqdm import tqdm
 
@@ -21,7 +21,7 @@ class BaseAnnotatorCfg(BaseModel):
     batch_size: int = Field(5, description="批量大小")
     save_intermediate: bool = Field(True, description="是否保存批量中间结果")
     checkpoint_num: int = Field(2, description="积累定量数据保存一次")
-    output_file_path: str = Field("qwen3:32b", description="保存的文件路径")
+    output_file_path: str = Field(".", description="保存的文件路径")
     
 class BaseAnnotator(ABC):
     """QA问答对自动标注器"""
