@@ -8,8 +8,10 @@ import math
 import os
 import json
 import httpx
-
+import asyncio
+from typing import List, Dict, Any, Optional
 from MedicalRag.core.base.BaseClient import LLMClient  # 你原本的接口
+from ...config.default_cfg import DenseEmbedCfg
 
 # -----------------------
 # 通用 HTTP 工具（重试/超时/代理）
@@ -146,6 +148,29 @@ class OllamaClient(LLMClient):
         except Exception as e:
             logging.error(f"Ollama 生成失败: {e}")
             raise
+        
+    async def embedding(self, prompt: str, prefix) -> List[float]:
+        data = {
+            "model": self.model_name,
+            "input": str(prefix + prompt),  # 用 input，不是 prompt
+        }
+        try:
+            result = await self.manager.post_json("api/embeddings", data)
+            return result.get("embedding")  # 单条输入
+        except Exception as e:
+            logging.error(f"Ollama 向量化失败: {e}")
+            raise
+        
+        
+    async def batch_embedding(self, prompts: List[str], prefix) -> List[List[float]]:
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+
+        async def _task(p: str):
+            async with semaphore:
+                return await self.embedding(p, prefix)
+
+        return await asyncio.gather(*(_task(p) for p in prompts))
+    
 
     async def batch_generate(self, prompts: List[str], system: Optional[str] = None) -> List[str]:
         """
@@ -158,7 +183,6 @@ class OllamaClient(LLMClient):
                 return await self.generate(p, system=system)
 
         return await asyncio.gather(*[_task(p) for p in prompts])
-
 
 # -----------------------
 # OpenAI 兼容 REST 客户端（/v1/chat/completions）
@@ -262,3 +286,12 @@ class OpenAICompatibleClient(LLMClient):
                 return await self.generate(p, system=system)
 
         return await asyncio.gather(*[_task(p) for p in prompts])
+    
+    async def embedding(self, prompt: str) -> List[float]:
+        # TODO 编码
+        raise "没实现"
+        
+        
+    async def batch_embedding(self, prompts: List[str]) -> List[List[float]]:
+        # TODO 编码
+        raise "没实现"

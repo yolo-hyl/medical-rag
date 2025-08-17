@@ -5,7 +5,7 @@
 import logging
 from typing import Optional
 from pathlib import Path
-from MedicalRag.config.milvus_cfg import AppCfg, load_cfg
+from MedicalRag.config.default_cfg import AppCfg, load_cfg
 from MedicalRag.core.vectorstore.milvus_client import MilvusConn
 from MedicalRag.core.vectorstore.milvus_schema import ensure_collection
 from MedicalRag.core.vectorstore.milvus_index import build_index_params

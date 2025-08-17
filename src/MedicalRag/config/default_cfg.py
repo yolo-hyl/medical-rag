@@ -21,7 +21,7 @@ IndexType = Literal["HNSW","IVF_FLAT","IVF_PQ","IVF_SQ8","SPARSE_INVERTED_INDEX"
 MetricType = Literal["L2","IP","COSINE"]
 Consistency = Literal["Strong","Bounded","Eventually"]
 ChannelKind = Literal["dense_document","dense_query","sparse_document","sparse_query"]
-EmbedProvider = Literal["ollama","openai","hf"]
+EmbedProvider = Literal["ollama","openai","local"]
 
 # -------------------------
 # Schema / Index / Search
@@ -125,7 +125,15 @@ class DenseEmbedCfg(BaseModel):
     base_url: Optional[str] = None
     dim: int = 768
     normalize: bool = False
+    max_concurrent: int = 8
+    proxy: Optional[str] = None
+    verify: bool = True
+    timeout: int = 60
+    max_retries: int = 5
+    backoff_base: float = 0.5
+    backoff_cap: float = 4.0
     prefixes: Dict[str, str] = Field(default_factory=lambda: {"query": "", "document": ""})
+    
 
 class SparseBM25Cfg(BaseModel):
     vocab_path: str
@@ -210,8 +218,8 @@ def is_yaml_file(path):
 def load_cfg(path: str) -> AppCfg:
     curr_dir = Path(__file__).resolve().parent
     if not (Path(path).exists() and Path(path).is_file() and is_yaml_file(path)):
-        logger.warning(f"当前配置文件不存在或者为非法yaml文件，读取默认配置")
-        path = str(curr_dir) + "/" + "milvus.yaml"
+        path = str(curr_dir) + "/" + "default.yaml"
+        logger.warning(f"当前配置文件不存在或者为非法yaml文件，读取默认配置: {path}")
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     return AppCfg(**raw)

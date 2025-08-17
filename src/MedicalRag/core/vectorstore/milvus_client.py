@@ -4,7 +4,7 @@
 from __future__ import annotations
 from typing import Optional
 from pymilvus import MilvusClient
-from ...config.milvus_cfg import AppCfg
+from ...config.default_cfg import AppCfg
 import time
 
 class MilvusConn:

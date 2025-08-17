@@ -1,29 +1,22 @@
 # examples/main_demo.py
 from pymilvus import MilvusClient
-from MedicalRag.config.milvus_cfg import load_cfg
+from MedicalRag.config.default_cfg import load_cfg
 from MedicalRag.core.vectorstore.milvus_client import MilvusConn
 from MedicalRag.core.vectorstore.milvus_schema import ensure_collection
 from MedicalRag.core.vectorstore.milvus_index import build_index_params
 from MedicalRag.core.vectorstore.milvus_write import insert_rows
 from MedicalRag.core.vectorstore.milvus_hybrid import HybridRetriever
 import logging
-# 你的自研模块
 from MedicalRag.data.processor.sparse import Vocabulary, BM25Vectorizer
-from langchain_ollama import OllamaEmbeddings
+from MedicalRag.core.llm.EmbeddingClient import FastEmbeddings
 import json
-
+from datasets import Dataset, load_dataset
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-def build_embedder(cfg):
-    d = cfg.embedding.dense
-    if d.provider == "ollama":
-        return OllamaEmbeddings(model=d.model, base_url=d.base_url)
-    raise ValueError(f"unsupported provider: {d.provider}")
 
 def main():
     cfg = load_cfg("config/rag.yaml")
@@ -40,45 +33,48 @@ def main():
     # --- 写入（示例） ---
     vocab = Vocabulary.load(cfg.embedding.sparse_bm25.vocab_path)
     vectorizer = BM25Vectorizer(vocab, domain_model=cfg.embedding.sparse_bm25.domain_model)
-    rows = json.load(open(cfg.ingest.input_path, "r", encoding="utf-8"))
-
+    # rows = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/tf-data/qa/*.json", split="train")
+    rows = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/insert.json", split="train")
     # 组装数据（与你 PoT 的 prepare_rows 类似，但参数从 cfg 来）
-    emb = build_embedder(cfg)
+    emb = FastEmbeddings(cfg.embedding.dense)
     pre = cfg.embedding.dense.prefixes
     q_texts = [r["question"] for r in rows]
     qa_texts = [f'{r["question"]}\n\n{r["answer"]}' for r in rows]
+    try:
+        dense_q = emb.embed_documents([f'{pre["query"]} {t}' if pre["query"] else t for t in q_texts])  # 需要更改
+        dense_qa = emb.embed_documents([f'{pre["document"]} {t}' if pre["document"] else t for t in qa_texts])
 
-    dense_q = emb.embed_documents([f'{pre["query"]} {t}' if pre["query"] else t for t in q_texts])
-    dense_qa = emb.embed_documents([f'{pre["document"]} {t}' if pre["document"] else t for t in qa_texts])
+        avgdl = max(1.0, vocab.sum_dl / max(1, vocab.N))
+        data_rows = []
+        for i, r in enumerate(rows):
+            qa_tokens = vectorizer.tokenize(qa_texts[i])
+            q_tokens = vectorizer.tokenize(q_texts[i])
+            sp_qa = vectorizer.build_sparse_vec_from_tokens(qa_tokens, avgdl, update_vocab=False)
+            sp_q  = vectorizer.build_sparse_vec_from_tokens(q_tokens,  avgdl, update_vocab=False)
+            if cfg.embedding.sparse_bm25.prune_empty_sparse and not sp_q:
+                sp_q = cfg.embedding.sparse_bm25.empty_sparse_fallback
+            dept = str((r.get("departments") or r.get("department") or ["-1"])[0])
 
-    avgdl = max(1.0, vocab.sum_dl / max(1, vocab.N))
-    data_rows = []
-    for i, r in enumerate(rows):
-        qa_tokens = vectorizer.tokenize(qa_texts[i])
-        q_tokens = vectorizer.tokenize(q_texts[i])
-        sp_qa = vectorizer.build_sparse_vec_from_tokens(qa_tokens, avgdl, update_vocab=False)
-        sp_q  = vectorizer.build_sparse_vec_from_tokens(q_tokens,  avgdl, update_vocab=False)
-        if cfg.embedding.sparse_bm25.prune_empty_sparse and not sp_q:
-            sp_q = cfg.embedding.sparse_bm25.empty_sparse_fallback
-        dept = str((r.get("departments") or r.get("department") or ["-1"])[0])
+            data_rows.append({
+                "dept_pk": dept,
+                "question": r["question"],
+                "answer": r["answer"],
+                "qa_text": qa_texts[i],
+                "dense_vec_q":  dense_q[i],
+                "dense_vec_qa": dense_qa[i],
+                "sparse_vec_q": sp_q,
+                "sparse_vec_qa": sp_qa,
+                "departments": r.get("departments"),
+                "categories": r.get("categories"),
+                "reasoning": r.get("reasoning"),
+                "source_name": r.get("source_name") or cfg.ingest.source_name_default,
+            })
 
-        data_rows.append({
-            "id": r["id"],
-            "dept_pk": dept,
-            "question": r["question"],
-            "answer": r["answer"],
-            "qa_text": qa_texts[i],
-            "dense_vec_q":  dense_q[i],
-            "dense_vec_qa": dense_qa[i],
-            "sparse_vec_q": sp_q,
-            "sparse_vec_qa": sp_qa,
-            "departments": r.get("departments"),
-            "categories": r.get("categories"),
-            "reasoning": r.get("reasoning"),
-            "source_name": r.get("source_name") or cfg.ingest.source_name_default,
-        })
-
-    insert_rows(client, cfg, data_rows)
+        insert_rows(client, cfg, data_rows)
+    except Exception as e:
+        print(e)
+    finally:
+        emb.close()
 
     # --- 检索（示例） ---
     retriever = HybridRetriever(client, cfg, emb, vectorizer)

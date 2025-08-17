@@ -4,7 +4,7 @@
 # milvus/milvus_index.py
 from __future__ import annotations
 from pymilvus import MilvusClient
-from ...config.milvus_cfg import AppCfg
+from ...config.default_cfg import AppCfg
 
 def build_index_params(client: MilvusClient, cfg: AppCfg):
     ip = client.prepare_index_params()

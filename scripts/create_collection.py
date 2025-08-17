@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 集合创建 Pipeline 测试脚本
 """
@@ -8,7 +7,7 @@ import logging
 import argparse
 from pathlib import Path
 from MedicalRag.pipeline.ingestion.ingestion_pipeline import CollectionCreationPipeline
-from MedicalRag.config.milvus_cfg import load_cfg
+from MedicalRag.config.default_cfg import load_cfg
 
 # 配置日志
 logging.basicConfig(
@@ -51,7 +50,7 @@ def test_collection_creation(config_path: str, force_recreate: bool = False):
         success = pipeline.run()
         
         if success:
-            logger.info("✅ 集合创建 Pipeline 执行成功")
+            logger.info("集合创建 Pipeline 执行成功")
             
             # 获取集合信息
             collection_info = pipeline.get_collection_info()
@@ -60,11 +59,11 @@ def test_collection_creation(config_path: str, force_recreate: bool = False):
                 logger.info(f"  {key}: {value}")
                 
         else:
-            logger.error("❌ 集合创建 Pipeline 执行失败")
+            logger.error("集合创建 Pipeline 执行失败")
             return False
         
     except Exception as e:
-        logger.error(f"❌ 测试过程中出现异常: {e}")
+        logger.error(f"测试过程中出现异常: {e}")
         return False
     
     logger.info("=== 集合创建 Pipeline 测试完成 ===")
@@ -85,7 +84,7 @@ def test_connection_only(config_path: str):
         
         # 仅测试连接
         if pipeline.connect():
-            logger.info("✅ Milvus 连接测试成功")
+            logger.info("Milvus 连接测试成功")
             
             # 检查集合状态
             exists = pipeline.check_collection_exists()
@@ -93,11 +92,11 @@ def test_connection_only(config_path: str):
             
             return True
         else:
-            logger.error("❌ Milvus 连接测试失败")
+            logger.error("Milvus 连接测试失败")
             return False
             
     except Exception as e:
-        logger.error(f"❌ 连接测试过程中出现异常: {e}")
+        logger.error(f"连接测试过程中出现异常: {e}")
         return False
 
 
@@ -140,10 +139,10 @@ def main():
             success = test_collection_creation(str(config_path), args.force_recreate)
         
         if success:
-            logger.info("🎉 所有测试通过")
+            logger.info("测试通过")
             sys.exit(0)
         else:
-            logger.error("💥 测试失败")
+            logger.error("测试失败")
             sys.exit(1)
             
     except KeyboardInterrupt:

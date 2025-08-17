@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import List, Dict, Any, Optional
 from pymilvus import MilvusClient
-from ...config.milvus_cfg import AppCfg
+from ...config.default_cfg import AppCfg
 from .milvus_query import hybrid_search
 
 class HybridRetriever:

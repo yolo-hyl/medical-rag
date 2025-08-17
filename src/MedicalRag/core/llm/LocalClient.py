@@ -80,3 +80,12 @@ class LocalModelClient(LLMClient):
             results.append(result)
         
         return results
+    
+    async def embedding(self, prompt: str) -> List[float]:
+        # TODO 编码
+        raise "没实现"
+        
+        
+    async def batch_embedding(self, prompts: List[str]) -> List[List[float]]:
+        # TODO 编码
+        raise "没实现"

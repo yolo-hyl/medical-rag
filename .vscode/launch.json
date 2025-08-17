@@ -29,7 +29,7 @@
             "name": "测试入库",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/pot/insert.py",
+            "program": "${workspaceFolder}/scripts/insert.py",
             "console": "integratedTerminal"
         },
         {
@@ -47,14 +47,23 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "create pipeline",
+            "name": "create collection",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/create_pipline.py",
             "console": "integratedTerminal",
             "args": [
-                "--force-recreate",
-                // "--connection-only"
+                "--force-recreate"
+            ]
+        },
+        {
+            "name": "test collection",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/create_pipline.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--connection-only"
             ]
         },
         {

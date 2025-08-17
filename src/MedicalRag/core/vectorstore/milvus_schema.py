@@ -5,7 +5,7 @@
 from __future__ import annotations
 from typing import Dict
 from pymilvus import MilvusClient, DataType
-from ...config.milvus_cfg import AppCfg, FieldCfg
+from ...config.default_cfg import AppCfg, FieldCfg
 
 # 映射 DataType
 _DT_MAP: Dict[str, DataType] = {

@@ -57,3 +57,12 @@ class VLLMClient(LLMClient):
         except Exception as e:
             logging.error(f"vLLM批量生成失败: {e}")
             return await asyncio.gather(*[self.generate(prompt) for prompt in prompts])
+        
+    async def embedding(self, prompt: str) -> List[float]:
+        # TODO 编码
+        raise "没实现"
+        
+        
+    async def batch_embedding(self, prompts: List[str]) -> List[List[float]]:
+        # TODO 编码
+        raise "没实现"

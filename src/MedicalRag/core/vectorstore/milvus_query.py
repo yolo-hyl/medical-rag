@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import List, Dict, Any, Optional
 from pymilvus import MilvusClient, AnnSearchRequest, RRFRanker, WeightedRanker
-from ...config.milvus_cfg import AppCfg, ChannelCfg
+from ...config.default_cfg import AppCfg, ChannelCfg
 import logging
 
 def _render_expr(channel: ChannelCfg, sch, expr_vars: Optional[Dict[str, Any]]) -> str:

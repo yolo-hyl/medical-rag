@@ -1,5 +1,6 @@
 """
 查询 Pipeline 测试脚本
+支持使用独立的搜索配置文件
 """
 
 import sys
@@ -55,27 +56,33 @@ def print_search_results(queries: List[str], results: List[List[Dict[str, Any]]]
                     print(f"  {key}: {value}")
 
 
-def test_pipeline_setup(config_path: str) -> QueryPipeline:
+def test_pipeline_setup(config_path: str, use_search_config: bool = False) -> QueryPipeline:
     """
     测试 Pipeline 设置
     
     Args:
         config_path: 配置文件路径
+        use_search_config: 是否使用搜索专用配置
         
     Returns:
         QueryPipeline: 设置好的查询 Pipeline
     """
-    logger.info("=== 开始测试查询 Pipeline 设置 ===")
+    config_type = "搜索专用" if use_search_config else "完整"
+    logger.info(f"=== 开始测试查询 Pipeline 设置（{config_type}配置） ===")
     
     try:
-        # 初始化 Pipeline
-        pipeline = QueryPipeline(config_path=config_path)
+        # 根据配置类型创建 Pipeline
+        if use_search_config:
+            pipeline = QueryPipeline.create_from_search_config(config_path)
+        else:
+            pipeline = QueryPipeline(config_path=config_path)
         
         # 显示配置信息
         logger.info(f"集合名称: {pipeline.collection_name}")
         logger.info(f"Milvus URI: {pipeline.cfg.milvus.client.uri}")
         logger.info(f"嵌入模型: {pipeline.cfg.embedding.dense.provider}/{pipeline.cfg.embedding.dense.model}")
         logger.info(f"稀疏向量: {pipeline.cfg.embedding.sparse_bm25.vocab_path}")
+        logger.info(f"配置类型: {pipeline._config_type}")
         
         # 执行设置
         success = pipeline.setup()
@@ -227,6 +234,82 @@ def test_channel_update(pipeline: QueryPipeline):
         return False
 
 
+def test_config_dict_creation():
+    """
+    测试从配置字典创建Pipeline
+    """
+    logger.info("=== 测试从配置字典创建Pipeline ===")
+    
+    try:
+        # 示例配置字典
+        config_dict = {
+            "milvus": {
+                "client": {
+                    "uri": "http://localhost:19530",
+                    "token": "root:Milvus",
+                    "db_name": "",
+                    "timeout_ms": 30000,
+                    "tls": False,
+                    "tls_verify": False
+                },
+                "collection": {
+                    "name": "qa_knowledge",
+                    "description": "RAG QA knowledge base",
+                    "load_on_start": True
+                }
+            },
+            "search": {
+                "default_limit": 5,
+                "output_fields": ["question", "answer"],
+                "pagination": {"page_size": 10, "max_pages": 100},
+                "expr_template": "",
+                "rrf": {"enabled": False, "k": 100},
+                "channels": [
+                    {
+                        "name": "sparse_doc",
+                        "field": "sparse_vec_qa",
+                        "enabled": True,
+                        "kind": "sparse_document",
+                        "metric_type": "IP",
+                        "limit": 5,
+                        "params": {"drop_ratio_search": 0.0},
+                        "expr_template": "",
+                        "weight": 1.0
+                    }
+                ]
+            },
+            "embedding": {
+                "dense": {
+                    "provider": "ollama",
+                    "model": "nomic-embed-text",
+                    "base_url": "http://172.16.40.51:11434",
+                    "dim": 768,
+                    "normalize": False,
+                    "prefixes": {"query": "search_query:", "document": "search_document:"}
+                },
+                "sparse_bm25": {
+                    "vocab_path": "vocab.pkl.gz",
+                    "domain_model": "medicine",
+                    "prune_empty_sparse": True,
+                    "empty_sparse_fallback": {"0": 0.0},
+                    "stopwords": ["什么", "？", "是", "如何"],
+                    "k1": 1.5,
+                    "b": 0.75
+                }
+            }
+        }
+        
+        # 从字典创建Pipeline
+        pipeline = QueryPipeline.create_from_config_dict(config_dict)
+        logger.info("✅ 从配置字典创建Pipeline成功")
+        logger.info(f"配置类型: {pipeline._config_type}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"❌ 从配置字典创建Pipeline失败: {e}")
+        return False
+
+
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="查询 Pipeline 测试脚本")
@@ -234,6 +317,16 @@ def main():
         "-c", "--config", 
         default="src/MedicalRag/config/milvus.yaml",
         help="配置文件路径"
+    )
+    parser.add_argument(
+        "-s", "--search-config",
+        default="src/MedicalRag/config/search/search_answer.yaml",
+        help="搜索配置文件路径"
+    )
+    parser.add_argument(
+        "--use-search-config",
+        action="store_true",
+        help="使用搜索专用配置文件"
     )
     parser.add_argument(
         "-q", "--query",
@@ -261,21 +354,39 @@ def main():
         action="store_true",
         help="测试动态更新通道配置"
     )
+    parser.add_argument(
+        "--test-config-dict",
+        action="store_true",
+        help="测试从配置字典创建Pipeline"
+    )
     
     args = parser.parse_args()
     
+    # 选择配置文件
+    config_path = args.search_config if args.use_search_config else args.config
+    
     # 检查配置文件是否存在
-    config_path = Path(args.config)
-    if not config_path.exists():
+    config_file = Path(config_path)
+    if not config_file.exists():
         logger.error(f"配置文件不存在: {config_path}")
         logger.info("请确保配置文件路径正确")
         sys.exit(1)
     
-    logger.info(f"使用配置文件: {config_path}")
+    config_type = "搜索专用" if args.use_search_config else "完整"
+    logger.info(f"使用{config_type}配置文件: {config_path}")
     
     try:
+        success_count = 0
+        total_tests = 0
+        
+        # 测试从配置字典创建Pipeline
+        if args.test_config_dict:
+            total_tests += 1
+            if test_config_dict_creation():
+                success_count += 1
+        
         # 设置 Pipeline
-        pipeline = test_pipeline_setup(str(config_path))
+        pipeline = test_pipeline_setup(str(config_path), args.use_search_config)
         if not pipeline:
             logger.error("Pipeline 设置失败，退出测试")
             sys.exit(1)
@@ -283,9 +394,6 @@ def main():
         if args.setup_only:
             logger.info("🎉 Pipeline 设置测试完成")
             sys.exit(0)
-        
-        success_count = 0
-        total_tests = 0
         
         # 测试单个查询
         total_tests += 1
@@ -300,7 +408,7 @@ def main():
         # 测试过滤查询
         if args.test_filter:
             total_tests += 1
-            if test_filtered_query(pipeline, args.query, expr_vars={'src': 'huatuo'}):
+            if test_filtered_query(pipeline, args.query):
                 success_count += 1
         
         # 测试通道更新

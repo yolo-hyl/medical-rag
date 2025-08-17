@@ -1,10 +1,12 @@
 """
 查询编排（过滤+混合检索+重排+裁剪）
+支持独立的搜索配置文件
 """
 
 import logging
-from typing import List, Dict, Any, Optional
-from MedicalRag.config.milvus_cfg import AppCfg, load_cfg
+from typing import List, Dict, Any, Optional, Union
+from MedicalRag.config.default_cfg import AppCfg, load_cfg
+from MedicalRag.config.search.search_cfg import SearchAppCfg, load_search_cfg, create_search_config_from_dict
 from MedicalRag.core.vectorstore.milvus_client import MilvusConn
 from MedicalRag.core.vectorstore.milvus_hybrid import HybridRetriever
 from MedicalRag.data.processor.sparse import Vocabulary, BM25Vectorizer
@@ -18,30 +20,58 @@ logger = logging.getLogger(__name__)
 class QueryPipeline:
     """
     查询 Pipeline
-    根据配置文件的 search 配置进行混合检索
+    支持使用独立的搜索配置文件或完整的milvus配置文件
     """
     
-    def __init__(self, config_path: Optional[str] = None, cfg: Optional[AppCfg] = None):
+    def __init__(
+        self, 
+        config_path: Optional[str] = None, 
+        cfg: Optional[Union[AppCfg, SearchAppCfg]] = None,
+        search_config_path: Optional[str] = None,
+        search_config_dict: Optional[Dict[str, Any]] = None
+    ):
         """
         初始化查询 Pipeline
         
         Args:
-            config_path: 配置文件路径
-            cfg: 直接传入的配置对象（优先级高于 config_path）
+            config_path: 完整配置文件路径（兼容性，优先级最低）
+            cfg: 直接传入的配置对象
+            search_config_path: 搜索配置文件路径（优先级较高）
+            search_config_dict: 搜索配置字典（优先级最高，用于API调用）
         """
-        if cfg is not None:
+        # 按优先级加载配置
+        if search_config_dict is not None:
+            # 最高优先级：直接传入配置字典
+            self.cfg = create_search_config_from_dict(search_config_dict)
+            self._config_type = "search"
+        elif cfg is not None:
+            # 第二优先级：直接传入配置对象
             self.cfg = cfg
+            self._config_type = "search" if isinstance(cfg, SearchAppCfg) else "full"
+        elif search_config_path is not None:
+            # 第三优先级：搜索配置文件
+            self.cfg = load_search_cfg(search_config_path)
+            self._config_type = "search"
         elif config_path is not None:
+            # 最低优先级：完整配置文件（兼容性）
             self.cfg = load_cfg(config_path)
+            self._config_type = "full"
         else:
-            raise ValueError("必须提供 config_path 或 cfg 参数")
+            raise ValueError("必须提供配置参数")
         
         self.conn: Optional[MilvusConn] = None
         self.retriever: Optional[HybridRetriever] = None
         self.embedder = None
         self.vectorizer = None
-        self.collection_name = self.cfg.milvus.collection.name
         
+        # 根据配置类型获取collection名称
+        if self._config_type == "search":
+            self.collection_name = self.cfg.milvus.collection.name
+        else:
+            self.collection_name = self.cfg.milvus.collection.name
+        
+        logger.info(f"使用{self._config_type}配置初始化QueryPipeline")
+    
     def connect(self) -> bool:
         """
         连接到 Milvus
@@ -50,7 +80,18 @@ class QueryPipeline:
             bool: 连接是否成功
         """
         try:
-            self.conn = MilvusConn(self.cfg)
+            # 创建简化的配置对象用于连接
+            if self._config_type == "search":
+                # 为搜索配置创建临时的AppCfg对象
+                temp_cfg = type('TempCfg', (), {
+                    'milvus': type('Milvus', (), {
+                        'client': self.cfg.milvus.client
+                    })()
+                })()
+                self.conn = MilvusConn(temp_cfg)
+            else:
+                self.conn = MilvusConn(self.cfg)
+            
             is_healthy = self.conn.healthy(timeout_sec=10)
             if is_healthy:
                 logger.info(f"成功连接到 Milvus: {self.cfg.milvus.client.uri}")
@@ -73,14 +114,26 @@ class QueryPipeline:
             raise RuntimeError("尚未连接到 Milvus，请先调用 connect()")
         
         try:
-            # 尝试加载集合
-            if self.conn.has_collection():
-                self.conn.load_collection()
-                logger.info(f"集合 '{self.collection_name}' 已加载")
-                return True
-            else:
+            # 检查集合是否存在
+            client = self.conn.get_client()
+            exists = client.has_collection(self.collection_name)
+            
+            if not exists:
                 logger.error(f"集合 '{self.collection_name}' 不存在")
                 return False
+            
+            # 尝试加载集合
+            load_on_start = True
+            if self._config_type == "search":
+                load_on_start = self.cfg.milvus.collection.load_on_start
+            else:
+                load_on_start = self.cfg.milvus.collection.load_on_start
+            
+            if load_on_start:
+                client.load_collection(self.collection_name)
+                logger.info(f"集合 '{self.collection_name}' 已加载")
+            
+            return True
         except Exception as e:
             logger.error(f"加载集合失败: {e}")
             return False
@@ -130,7 +183,22 @@ class QueryPipeline:
         
         try:
             client = self.conn.get_client()
-            self.retriever = HybridRetriever(client, self.cfg, self.embedder, self.vectorizer)
+            # 创建兼容的配置对象
+            if self._config_type == "search":
+                # 为搜索配置创建兼容的配置对象
+                temp_cfg = type('TempCfg', (), {
+                    'milvus': type('Milvus', (), {
+                        'collection': type('Collection', (), {
+                            'name': self.cfg.milvus.collection.name
+                        })(),
+                        'search': self.cfg.search
+                    })(),
+                    'embedding': self.cfg.embedding
+                })()
+                self.retriever = HybridRetriever(client, temp_cfg, self.embedder, self.vectorizer)
+            else:
+                self.retriever = HybridRetriever(client, self.cfg, self.embedder, self.vectorizer)
+            
             logger.info("成功初始化混合检索器")
         except Exception as e:
             logger.error(f"初始化混合检索器失败: {e}")
@@ -211,6 +279,13 @@ class QueryPipeline:
             
             # 转换结果格式
             formatted_results = []
+            
+            # 获取输出字段配置
+            if self._config_type == "search":
+                output_fields = self.cfg.search.output_fields
+            else:
+                output_fields = self.cfg.milvus.search.output_fields
+            
             for i, hits in enumerate(results):
                 query_results = []
                 for hit in hits:
@@ -220,7 +295,7 @@ class QueryPipeline:
                         "score": 1.0 / (1.0 + hit.distance) if hit.distance >= 0 else hit.distance,
                     }
                     # 添加输出字段
-                    for field in self.cfg.milvus.search.output_fields:
+                    for field in output_fields:
                         result[field] = hit.get(field)
                     query_results.append(result)
                 formatted_results.append(query_results)
@@ -263,7 +338,11 @@ class QueryPipeline:
         Returns:
             Dict[str, Any]: 搜索配置信息
         """
-        search_cfg = self.cfg.milvus.search
+        if self._config_type == "search":
+            search_cfg = self.cfg.search
+        else:
+            search_cfg = self.cfg.milvus.search
+            
         return {
             "default_limit": search_cfg.default_limit,
             "output_fields": search_cfg.output_fields,
@@ -301,13 +380,18 @@ class QueryPipeline:
             bool: 更新是否成功
         """
         try:
+            if self._config_type == "search":
+                channels = self.cfg.search.channels
+            else:
+                channels = self.cfg.milvus.search.channels
+                
             for update in channel_updates:
                 channel_name = update.get("name")
                 if not channel_name:
                     continue
                 
                 # 找到对应的通道
-                for channel in self.cfg.milvus.search.channels:
+                for channel in channels:
                     if channel.name == channel_name:
                         # 更新通道配置
                         for key, value in update.items():
@@ -321,3 +405,35 @@ class QueryPipeline:
         except Exception as e:
             logger.error(f"更新搜索通道配置失败: {e}")
             return False
+
+    @classmethod
+    def create_from_search_config(
+        cls, 
+        search_config_path: str
+    ) -> 'QueryPipeline':
+        """
+        从搜索配置文件创建QueryPipeline实例
+        
+        Args:
+            search_config_path: 搜索配置文件路径
+            
+        Returns:
+            QueryPipeline: 配置好的实例
+        """
+        return cls(search_config_path=search_config_path)
+    
+    @classmethod
+    def create_from_config_dict(
+        cls, 
+        search_config_dict: Dict[str, Any]
+    ) -> 'QueryPipeline':
+        """
+        从配置字典创建QueryPipeline实例
+        
+        Args:
+            search_config_dict: 搜索配置字典
+            
+        Returns:
+            QueryPipeline: 配置好的实例
+        """
+        return cls(search_config_dict=search_config_dict)

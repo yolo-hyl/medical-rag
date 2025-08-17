@@ -1,64 +1,81 @@
+# src/MedicalRag/config/search/search_answer.yaml
 milvus:
   client:
     uri: "http://localhost:19530"
     token: "root:Milvus"
-    db_name: ""                # 为空用默认
+    db_name: ""                
     timeout_ms: 30000
     tls: false
-    tls_verify: false          # 自签名可关
+    tls_verify: false          
   collection:
-    name: "qa_knowledge"  # collection名字
-    description: "RAG QA knowledge base"  # collection描述
-    recreate_if_exists: false  # 开发期可设 true，生产要小心
-    num_partitions: 128
+    name: "qa_knowledge"  
+    description: "RAG QA knowledge base"  
     load_on_start: true
-    properties:
-      partitionkey.isolation: true     # 仅 HNSW 生效
+
 search:
-    default_limit: 10
-    output_fields: ["question","answer","departments","categories","source_name"]
-    pagination:
-      page_size: 10
-      max_pages: 100
-    expr_template: ""                 # 例如: 'dept_pk in ["1","2"] and id != "{exclude_id}"'
-    rrf:
-      enabled: false   # false 则使用 WeightedRanker
-      k: 100
-    # 各检索通道（可开关、可配参数）
-    channels:
-      - name: dense_doc
-        field: dense_vec_qa
-        enabled: false
-        kind: dense_document           # dense_document | dense_query | sparse_document | sparse_query
-        metric_type: COSINE
-        limit: 5
-        params: { ef: 256 }
-        expr_template: ''   # 可为空，使用顶层的；也可写成 'id != "{exclude_id}"'
-        weight: 0.1
-      - name: sparse_q
-        field: sparse_vec_q
-        enabled: true
-        kind: sparse_query
-        metric_type: IP
-        limit: 5
-        params: { drop_ratio_search: 0.0 }
-        expr_template: 'source_name == "{src}"'
-        weight: 0.2
-      - name: dense_q
-        field: dense_vec_q
-        enabled: false
-        kind: dense_query
-        metric_type: COSINE
-        limit: 5
-        params: { ef: 256 }
-        expr_template: ''   # 可为空，使用顶层的；也可写成 'id != "{exclude_id}"'
-        weight: -1
-      - name: sparse_doc
-        field: sparse_vec_qa
-        enabled: true
-        kind: sparse_document
-        metric_type: IP
-        limit: 5
-        params: { drop_ratio_search: 0.0 }
-        expr_template: ''   # 可为空，使用顶层的；也可写成 'id != "{exclude_id}"'
-        weight: 0.8
+  default_limit: 10
+  output_fields: ["question","answer","departments","categories","source_name"]
+  pagination:
+    page_size: 10
+    max_pages: 100
+  expr_template: ""                 
+  rrf:
+    enabled: false   
+    k: 100
+  channels:
+    - name: dense_doc
+      field: dense_vec_qa
+      enabled: false
+      kind: dense_document           
+      metric_type: COSINE
+      limit: 5
+      params: { ef: 256 }
+      expr_template: ''   
+      weight: 0.1
+    - name: sparse_q
+      field: sparse_vec_q
+      enabled: true
+      kind: sparse_query
+      metric_type: IP
+      limit: 5
+      params: { drop_ratio_search: 0.0 }
+      expr_template: 'source_name == "{src}"'
+      weight: 0.2
+    - name: dense_q
+      field: dense_vec_q
+      enabled: false
+      kind: dense_query
+      metric_type: COSINE
+      limit: 5
+      params: { ef: 256 }
+      expr_template: ''   
+      weight: -1
+    - name: sparse_doc
+      field: sparse_vec_qa
+      enabled: true
+      kind: sparse_document
+      metric_type: IP
+      limit: 5
+      params: { drop_ratio_search: 0.0 }
+      expr_template: ''   
+      weight: 0.8
+
+# 添加embedding配置，这是search需要的
+embedding:
+  dense:
+    provider: ollama                  
+    model: "nomic-embed-text"
+    base_url: "http://172.16.40.51:11434"
+    dim: 768
+    normalize: false
+    prefixes:
+      query: "search_query:"
+      document: "search_document:"
+  sparse_bm25:
+    vocab_path: "vocab.pkl.gz"
+    domain_model: "medicine"
+    prune_empty_sparse: true
+    empty_sparse_fallback: { "0": 0.0 }
+    stopwords: ["什么","？","是","如何"]
+    k1: 1.5
+    b: 0.75

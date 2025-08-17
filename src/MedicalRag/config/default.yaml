@@ -19,7 +19,7 @@ milvus:
     properties:
       partitionkey.isolation: true     # 仅 HNSW 生效
   schema:
-    auto_id: false
+    auto_id: true
     enable_dynamic_field: true
     fields:
       - name: id
@@ -159,11 +159,17 @@ embedding:
     base_url: "http://172.16.40.51:11434"
     dim: 768
     normalize: false
+    max_concurrent: 8
+    proxy: 
+    verify: true 
+    max_retries: 5
+    backoff_base: 0.5
+    backoff_cap: 4.0
     prefixes:
-      query: "search_query:"
-      document: "search_document:"
+      query: "search_query: "
+      document: "search_document: "
   sparse_bm25:
-    vocab_path: "vocab.pkl.gz"
+    vocab_path: "vocab.pkl.gz"   # 如果没有/ 则默认会在 src/MedicalRag/data/processor/vocab下
     domain_model: "medicine"
     prune_empty_sparse: true
     empty_sparse_fallback: { "0": 0.0 } # 字典 key 会被转 int
