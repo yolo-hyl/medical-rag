@@ -76,10 +76,10 @@ class FastEmbeddings:
             _run_async(self._client.aclose())
             self._closed = True
 
-    # def __del__(self):
-    #     # 防遗忘收尾（尽量别依赖 __del__，还是在主流程里显式 close）
-    #     try:
-    #         self.close()
-    #     except Exception:
-    #         pass
+    def __del__(self):
+        # 防遗忘收尾（尽量别依赖 __del__，还是在主流程里显式 close）
+        try:
+            self.close()
+        except Exception:
+            pass
         

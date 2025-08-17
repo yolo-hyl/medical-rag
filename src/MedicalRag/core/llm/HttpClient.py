@@ -71,7 +71,13 @@ class _HTTPXClientManager:
 
         for attempt in range(self.max_retries + 1):
             try:
-                resp = await self._client.post(url, json=json_data, headers=headers)
+                async with httpx.AsyncClient(
+                    base_url=self.base_url,
+                    timeout=self.timeout,
+                    limits=httpx.Limits(max_keepalive_connections=0)  # 禁用 keep-alive 也能进一步规避滞留清理
+                ) as client:
+                    resp = await client.post(path, json=json_data, headers=headers)
+                #  = await self._client.post(url, json=json_data, headers=headers)
                 # 可重试状态码
                 if resp.status_code in (429, 500, 502, 503, 504):
                     raise httpx.HTTPStatusError(

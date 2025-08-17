@@ -11,6 +11,8 @@ from MedicalRag.data.processor.sparse import Vocabulary, BM25Vectorizer
 from MedicalRag.core.llm.EmbeddingClient import FastEmbeddings
 import json
 from datasets import Dataset, load_dataset
+import asyncio
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -37,12 +39,11 @@ def main():
     rows = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/insert.json", split="train")
     # 组装数据（与你 PoT 的 prepare_rows 类似，但参数从 cfg 来）
     emb = FastEmbeddings(cfg.embedding.dense)
-    pre = cfg.embedding.dense.prefixes
     q_texts = [r["question"] for r in rows]
     qa_texts = [f'{r["question"]}\n\n{r["answer"]}' for r in rows]
     try:
-        dense_q = emb.embed_documents([f'{pre["query"]} {t}' if pre["query"] else t for t in q_texts])  # 需要更改
-        dense_qa = emb.embed_documents([f'{pre["document"]} {t}' if pre["document"] else t for t in qa_texts])
+        dense_q = emb.embed_documents([t for t in q_texts])  # 需要更改
+        dense_qa = emb.embed_documents([t for t in qa_texts])
 
         avgdl = max(1.0, vocab.sum_dl / max(1, vocab.N))
         data_rows = []
@@ -77,21 +78,21 @@ def main():
         emb.close()
 
     # --- 检索（示例） ---
-    retriever = HybridRetriever(client, cfg, emb, vectorizer)
+    # retriever = HybridRetriever(client, cfg, emb, vectorizer)
 
-    # 例如：顶层模板 'dept_pk in ["{dept}"]'
-    # 且 sparse_q 通道模板为 'dept_pk in ["{dept}"] and source_name == "{src}"'
-    queries=["梅毒", "巨肠症是什么东西？"]
-    res = retriever.search(
-        queries=queries,
-        expr_vars={"src": "huatuo_qa"},
-        page=1
-    )
+    # # 例如：顶层模板 'dept_pk in ["{dept}"]'
+    # # 且 sparse_q 通道模板为 'dept_pk in ["{dept}"] and source_name == "{src}"'
+    # queries=["梅毒", "巨肠症是什么东西？"]
+    # res = retriever.search(
+    #     queries=queries,
+    #     expr_vars={"src": "huatuo_qa"},
+    #     page=1
+    # )
 
-    for i, hits in enumerate(res):
-        print(f"\n=== Query[{i}] {queries[i]} ===")
-        for h in hits:
-            print(h.id, h.distance, h.get("question"))
+    # for i, hits in enumerate(res):
+    #     print(f"\n=== Query[{i}] {queries[i]} ===")
+    #     for h in hits:
+    #         print(h.id, h.distance, h.get("question"))
 
 if __name__ == "__main__":
     main()
