@@ -46,6 +46,10 @@ class _HTTPXClientManager:
             proxy=self.proxy,
             verify=self.verify,
             headers=self._headers,
+            limits=httpx.Limits(
+                max_keepalive_connections=20,  # 允许保持连接
+                max_connections=100
+            )
         )
 
     async def aclose(self):
@@ -71,13 +75,7 @@ class _HTTPXClientManager:
 
         for attempt in range(self.max_retries + 1):
             try:
-                async with httpx.AsyncClient(
-                    base_url=self.base_url,
-                    timeout=self.timeout,
-                    limits=httpx.Limits(max_keepalive_connections=0)  # 禁用 keep-alive 也能进一步规避滞留清理
-                ) as client:
-                    resp = await client.post(path, json=json_data, headers=headers)
-                #  = await self._client.post(url, json=json_data, headers=headers)
+                resp = await self._client.post(url, json=json_data, headers=headers)
                 # 可重试状态码
                 if resp.status_code in (429, 500, 502, 503, 504):
                     raise httpx.HTTPStatusError(
@@ -158,7 +156,7 @@ class OllamaClient(LLMClient):
     async def embedding(self, prompt: str, prefix) -> List[float]:
         data = {
             "model": self.model_name,
-            "input": str(prefix + prompt),  # 用 input，不是 prompt
+            "prompt": str(prefix + prompt),  # 用 prompt
         }
         try:
             result = await self.manager.post_json("api/embeddings", data)

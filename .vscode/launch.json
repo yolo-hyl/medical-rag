@@ -40,6 +40,13 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "测试编码",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/test_embedding.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "测试pipeline",
             "type": "debugpy",
             "request": "launch",
