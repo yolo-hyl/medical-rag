@@ -54,7 +54,7 @@ class HybridRetriever:
             client=self.client,
             cfg=self.cfg,
             req_data=req_data,
-            expr_vars=expr_vars,   # ← 透传变量，通道各自渲染 expr
+            expr_vars=expr_vars,
             page=page,
             page_size=page_size
         )

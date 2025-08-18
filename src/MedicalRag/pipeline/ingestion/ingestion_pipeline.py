@@ -141,7 +141,7 @@ class CollectionCreationPipeline:
     
     def run(self) -> bool:
         """
-        运行完整的集合创建流程
+        运行完整的集合创建流程 + 构建索引
         
         Returns:
             bool: 整个流程是否成功

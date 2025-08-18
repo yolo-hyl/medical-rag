@@ -15,7 +15,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
+# 关闭 httpx 的日志
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def test_collection_creation(config_path: str, force_recreate: bool = False):
     """
@@ -63,7 +64,7 @@ def test_collection_creation(config_path: str, force_recreate: bool = False):
             return False
         
     except Exception as e:
-        logger.error(f"测试过程中出现异常: {e}")
+        logger.error(f"出现异常: {e}")
         return False
     
     logger.info("=== 集合创建 Pipeline 测试完成 ===")
@@ -96,7 +97,7 @@ def test_connection_only(config_path: str):
             return False
             
     except Exception as e:
-        logger.error(f"连接测试过程中出现异常: {e}")
+        logger.error(f"连接过程中出现异常: {e}")
         return False
 
 

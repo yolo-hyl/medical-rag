@@ -19,42 +19,14 @@
             ]
         },
         {
-            "name": "测试稀疏向量构建",
+            "name": "构建稀疏向量词表",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/test/test_sparse.py",
+            "program": "${workspaceFolder}/scripts/build_vocab.py",
             "console": "integratedTerminal"
         },
         {
-            "name": "测试入库",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/insert.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "测试查询",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/pot/search.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "测试编码",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/test_embedding.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "测试pipeline",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/db.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "create collection",
+            "name": "创建collection pipline",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/create_pipline.py",
@@ -64,24 +36,23 @@
             ]
         },
         {
-            "name": "test collection",
+            "name": "入库pipline",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/create_pipline.py",
+            "program": "${workspaceFolder}/scripts/insert_data_to_collection.py",
             "console": "integratedTerminal",
             "args": [
-                "--connection-only"
+                "--search-config", "/home/weihua/medical-rag/src/MedicalRag/config/search/search_answer.yaml"
             ]
         },
         {
-            "name": "search pipeline",
+            "name": "查询 pipeline",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/search_pipline.py",
             "console": "integratedTerminal",
             "args": [
-                // "--force-recreate",
-                // "--connection-only"
+                "--search-config", "/home/weihua/medical-rag/src/MedicalRag/config/search/search_answer.yaml"
             ]
         }
     ]

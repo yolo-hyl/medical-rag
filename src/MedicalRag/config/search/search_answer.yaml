@@ -1,4 +1,3 @@
-# src/MedicalRag/config/search/search_answer.yaml
 milvus:
   client:
     uri: "http://localhost:19530"
@@ -18,20 +17,19 @@ search:
   pagination:
     page_size: 10
     max_pages: 100
-  expr_template: ""                 
   rrf:
     enabled: false   
     k: 100
   channels:
     - name: dense_doc
       field: dense_vec_qa
-      enabled: false
+      enabled: true
       kind: dense_document           
       metric_type: COSINE
       limit: 5
       params: { ef: 256 }
-      expr_template: ''   
-      weight: 0.1
+      expr: ''
+      weight: 0.3
     - name: sparse_q
       field: sparse_vec_q
       enabled: true
@@ -39,8 +37,8 @@ search:
       metric_type: IP
       limit: 5
       params: { drop_ratio_search: 0.0 }
-      expr_template: 'source_name == "{src}"'
-      weight: 0.2
+      expr: ''
+      weight: 0.3
     - name: dense_q
       field: dense_vec_q
       enabled: false
@@ -48,7 +46,7 @@ search:
       metric_type: COSINE
       limit: 5
       params: { ef: 256 }
-      expr_template: ''   
+      expr: ''   
       weight: -1
     - name: sparse_doc
       field: sparse_vec_qa
@@ -57,8 +55,8 @@ search:
       metric_type: IP
       limit: 5
       params: { drop_ratio_search: 0.0 }
-      expr_template: ''   
-      weight: 0.8
+      expr: ''   
+      weight: 0.4
 
 # 添加embedding配置，这是search需要的
 embedding:

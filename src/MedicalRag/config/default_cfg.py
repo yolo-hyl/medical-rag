@@ -81,7 +81,7 @@ class ChannelCfg(BaseModel):
     metric_type: MetricType
     limit: int = 10
     params: Dict[str, Any] = Field(default_factory=dict)
-    expr_template: Optional[str] = None
+    expr: Optional[str] = None
     weight: float = -1.0
 
 class PaginationCfg(BaseModel):
@@ -91,7 +91,6 @@ class PaginationCfg(BaseModel):
 class SearchCfg(BaseModel):
     default_limit: int = 10
     output_fields: List[str] = Field(default_factory=list)
-    expr_template: str = ""
     rrf: RrfCfg = Field(default_factory=RrfCfg)
     channels: List[ChannelCfg]
     pagination: PaginationCfg = Field(default_factory=PaginationCfg)

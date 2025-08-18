@@ -266,9 +266,7 @@ class QueryPipeline:
         if not self.retriever:
             raise RuntimeError("检索器未初始化，请先调用 setup()")
         
-        try:
-            logger.info(f"开始执行检索，查询数量: {len(queries)}")
-            
+        try:            
             # 调用混合检索
             results = self.retriever.search(
                 queries=queries,
@@ -346,7 +344,6 @@ class QueryPipeline:
         return {
             "default_limit": search_cfg.default_limit,
             "output_fields": search_cfg.output_fields,
-            "expr_template": search_cfg.expr_template,
             "rrf_enabled": search_cfg.rrf.enabled,
             "rrf_k": search_cfg.rrf.k if search_cfg.rrf.enabled else None,
             "channels": [
@@ -358,7 +355,7 @@ class QueryPipeline:
                     "metric_type": ch.metric_type,
                     "limit": ch.limit,
                     "weight": ch.weight,
-                    "expr_template": ch.expr_template
+                    "expr": ch.expr
                 }
                 for ch in search_cfg.channels
             ],

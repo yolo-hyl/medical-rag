@@ -6,7 +6,7 @@ import os, gzip, pickle, math
 from pathlib import Path
 
 current_dir = Path(__file__).resolve().parent
-default_vocab_dir = current_dir / "vocab"
+default_vocab_dir = str(current_dir) + "/vocab/"
 
 # ====== worker 全局 ======
 _SEG = None  # 每个子进程里各自持有一个分词器
@@ -79,8 +79,8 @@ class Vocabulary:
         data = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
         
         if '/' not in path:  # 没有自定义绝对路径 , 自动保存在当前目录下的vocab文件夹
-            tmp = str(default_vocab_dir) + ".tmp"
-            path = str(default_vocab_dir) + ".tmp"
+            tmp = str(default_vocab_dir) + path + ".tmp"
+            path = str(default_vocab_dir) + path
         else:
             tmp = path + ".tmp"
             

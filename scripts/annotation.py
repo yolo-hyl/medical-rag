@@ -19,6 +19,8 @@ def setup_logging(config: Dict[str, Any]):
             logging.StreamHandler()
         ]
     )
+    # 关闭 httpx 的日志
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     return logging.getLogger(__name__)
 
 

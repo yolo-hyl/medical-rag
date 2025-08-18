@@ -5,20 +5,14 @@ from pymilvus import MilvusClient, AnnSearchRequest, RRFRanker, WeightedRanker
 from ...config.default_cfg import AppCfg, ChannelCfg
 import logging
 
-def _render_expr(channel: ChannelCfg, sch, expr_vars: Optional[Dict[str, Any]]) -> str:
-    tpl = (channel.expr_template or sch.expr_template or "").strip()
-    if not tpl:
-        return ""
-    return tpl.format(**(expr_vars or {}))
-
 def _make_req(data_list: List[Any], channel: ChannelCfg, expr: str) -> AnnSearchRequest:
     logging.info(
-        f"\n创建 AnnSearchRequest Params: \n " + 
-        f"anns_field: {channel.field} \n "+
-        f"param.metric_type: {channel.metric_type} \n " +
-        f"param.params: {channel.params or {}} \n "+
-        f"limit: {channel.limit} \n "+
-        f"expr: {channel.field} \n " + 
+        f"创建 AnnSearchRequest Params: " + 
+        f"anns_field: {channel.field}  "+
+        f"param.metric_type: {channel.metric_type}  " +
+        f"param.params: {channel.params or {}}  "+
+        f"limit: {channel.limit}  "+
+        f"expr: {expr}  " + 
         f"weight: {channel.weight}"
     )
     return AnnSearchRequest(
@@ -26,7 +20,7 @@ def _make_req(data_list: List[Any], channel: ChannelCfg, expr: str) -> AnnSearch
         anns_field=channel.field,
         param={"metric_type": channel.metric_type, "params": channel.params or {}},
         limit=channel.limit,
-        expr=expr  # ← 关键：表达式放到每个 AnnSearchRequest
+        expr=expr
     )
 
 def _page_to_offset(page: int, page_size: int) -> int:
@@ -49,13 +43,19 @@ def hybrid_search(
     output_fields = output_fields or sch.output_fields
 
     reqs = []
+    if "*" in expr_vars:
+        v = expr_vars["*"]
+        expr_vars = {ch.name: v for ch in sch.channels}
+        logging.info("检测到通配符，忽略所有其他配置")
     for ch in sch.channels:
         if not ch.enabled:
             continue
         dl = req_data.get(ch.name)
         if not dl:
             continue
-        expr = _render_expr(ch, sch, expr_vars)
+        expr = expr_vars.get(ch.name, "")  # 优先使用传入的
+        if expr == "":  # 在使用配置中的
+            expr = ch.expr
         reqs.append(_make_req(dl, ch, expr))
     
     if sch.rrf.enabled:

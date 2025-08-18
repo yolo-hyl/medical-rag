@@ -27,7 +27,7 @@ milvus:
         max_length: 64
         is_primary: true
       - name: dept_pk
-        dtype: VARCHAR
+        dtype: INT64
         max_length: 32
         is_partition_key: true
       - name: question
@@ -91,7 +91,6 @@ milvus:
     pagination:
       page_size: 10
       max_pages: 100
-    expr_template: ""                 # 例如: 'dept_pk in ["1","2"] and id != "{exclude_id}"'
     rrf:
       enabled: false   # false 则使用 WeightedRanker
       k: 100
@@ -100,11 +99,11 @@ milvus:
       - name: dense_doc
         field: dense_vec_qa
         enabled: false
-        kind: dense_document           # dense_document | dense_query | sparse_document | sparse_query
+        kind: dense_query           # dense_document | dense_query | sparse_document | sparse_query
         metric_type: COSINE
         limit: 5
         params: { ef: 256 }
-        expr_template: ''   # 可为空，使用顶层的；也可写成 'id != "{exclude_id}"'
+        expr: '' 
         weight: 0.1
       - name: sparse_q
         field: sparse_vec_q
@@ -113,7 +112,7 @@ milvus:
         metric_type: IP
         limit: 5
         params: { drop_ratio_search: 0.0 }
-        expr_template: 'source_name == "{src}"'
+        expr: ''
         weight: 0.2
       - name: dense_q
         field: dense_vec_q
@@ -122,7 +121,7 @@ milvus:
         metric_type: COSINE
         limit: 5
         params: { ef: 256 }
-        expr_template: ''   # 可为空，使用顶层的；也可写成 'id != "{exclude_id}"'
+        expr: ''
         weight: -1
       - name: sparse_doc
         field: sparse_vec_qa
@@ -131,7 +130,7 @@ milvus:
         metric_type: IP
         limit: 5
         params: { drop_ratio_search: 0.0 }
-        expr_template: ''   # 可为空，使用顶层的；也可写成 'id != "{exclude_id}"'
+        expr: '' 
         weight: 0.8
 
   write:
