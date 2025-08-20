@@ -106,7 +106,7 @@ def main():
     parser = argparse.ArgumentParser(description="集合创建 Pipeline 测试脚本")
     parser.add_argument(
         "-c", "--config", 
-        default="src/MedicalRag/config/milvus.yaml",
+        default="scripts/examples/default.yaml",
         help="配置文件路径"
     )
     parser.add_argument(

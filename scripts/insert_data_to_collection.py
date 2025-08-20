@@ -6,6 +6,8 @@ import logging
 from MedicalRag.data.processor.sparse import Vocabulary, BM25Vectorizer
 from MedicalRag.core.llm.EmbeddingClient import FastEmbeddings
 from datasets import load_dataset
+import traceback
+from tqdm import tqdm
 
 # 配置日志
 logging.basicConfig(
@@ -16,9 +18,18 @@ logger = logging.getLogger(__name__)
 # 关闭 httpx 的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
+def extract_qa_first(example):
+    # 取第一个数组的第一个元素
+    example["question"] = example["questions"][0][0] if example["questions"] and example["questions"][0] else None
+    example["answer"] = example["answers"][0] if example["answers"][0] else None
+    example["text"] = f"{example['question']}\n\n{example['answer']}"
+    return example
+
+
 def main():
     ########  加载配置  ############
-    cfg = load_cfg("config/rag.yaml")  
+    cfg = load_cfg("scripts/default.yaml")  
 
     ########  连接与集合  ############
     conn = MilvusConn(cfg)
@@ -32,46 +43,41 @@ def main():
     
     ########  加载数据集  ############
     # rows = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/tf-data/qa/*.json", split="train")
-    rows = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/insert.json", split="train")
+    data = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/raw/train/qa_train_datasets.jsonl", split="train")
+    data = data.map(extract_qa_first)
+    
+    data = data.select_columns(["question", "answer", "text"])
     ########  加载数据集  ############
     
     
     ########  组装数据  ############# 
     emb = FastEmbeddings(cfg.embedding.dense)
-    q_texts = [r["question"] for r in rows]
-    qa_texts = [f'{r["question"]}\n\n{r["answer"]}' for r in rows]
     try:
-        dense_q = emb.embed_documents([t for t in q_texts])
-        dense_qa = emb.embed_documents([t for t in qa_texts])
+        dense_text = emb.embed_documents(data['text'], show_progress=True, batch_size=32)
         avgdl = max(1.0, vocab.sum_dl / max(1, vocab.N))
         data_rows = []
-        for i, r in enumerate(rows):
-            qa_tokens = vectorizer.tokenize(qa_texts[i])
-            q_tokens = vectorizer.tokenize(q_texts[i])
-            sp_qa = vectorizer.build_sparse_vec_from_tokens(qa_tokens, avgdl, update_vocab=False)
-            sp_q  = vectorizer.build_sparse_vec_from_tokens(q_tokens,  avgdl, update_vocab=False)
-            if cfg.embedding.sparse_bm25.prune_empty_sparse and not sp_q:
-                sp_q = cfg.embedding.sparse_bm25.empty_sparse_fallback
-            dept = (r.get("departments") or r.get("department") or ["-1"])[0]
-
+        for i in tqdm(range(len(data)), desc="tokenize"):
+            text_tokens = vectorizer.tokenize(data['text'][i])
+            sp_text = vectorizer.build_sparse_vec_from_tokens(text_tokens, avgdl, update_vocab=False)
+            if cfg.embedding.sparse_bm25.prune_empty_sparse and not sp_text:
+                sp_text = cfg.embedding.sparse_bm25.empty_sparse_fallback
             data_rows.append({
-                "dept_pk": dept,
-                "question": r["question"],
-                "answer": r["answer"],
-                "qa_text": qa_texts[i],
-                "dense_vec_q":  dense_q[i],
-                "dense_vec_qa": dense_qa[i],
-                "sparse_vec_q": sp_q,
-                "sparse_vec_qa": sp_qa,
-                "departments": r.get("departments"),
-                "categories": r.get("categories"),
-                "reasoning": r.get("reasoning"),
-                "source_name": r.get("source_name") or cfg.ingest.source_name_default,
+                "question": data["question"][i],
+                "answer": data["answer"][i],
+                "text": data["text"][i],
+                "doc_id": "",
+                "chunk_id": -1,
+                "dense_vec_text":  dense_text[i],
+                "sparse_vec_text": sp_text,
+                "departments": [],
+                "categories": [],
+                "source": "qa",
             })
         ########  开始插入数据  ############# 
-        insert_rows(client, cfg, data_rows)
+        insert_rows(client, cfg, data_rows, show_progress=True)
     except Exception as e:
         print(e)
+        traceback.print_exc()
     finally:
         emb.close()
 

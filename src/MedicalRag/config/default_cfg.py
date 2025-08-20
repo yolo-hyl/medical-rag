@@ -57,9 +57,9 @@ class CollectionCfg(BaseModel):
     name: str
     description: str = ""
     recreate_if_exists: bool = False
-    num_partitions: int = 1
+    num_partitions: int = None
     load_on_start: bool = True
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class ClientCfg(BaseModel):
     uri: str
@@ -158,10 +158,6 @@ class EmbeddingCfg(BaseModel):
 # -------------------------
 # Ingest / Runtime / Logging
 # -------------------------
-class IngestCfg(BaseModel):
-    source_name_default: str = "huatuo_qa"
-    input_path: str
-    fields_mapping: Dict[str, str] = Field(default_factory=dict)
 
 class RuntimeCfg(BaseModel):
     concurrency: int = 4
@@ -190,7 +186,6 @@ class AppCfg(BaseModel):
     app: Dict[str, Any] = Field(default_factory=dict)
     milvus: MilvusAllCfg
     embedding: EmbeddingCfg
-    ingest: IngestCfg
     runtime: RuntimeCfg = Field(default_factory=RuntimeCfg)
     logging: LoggingCfg = Field(default_factory=LoggingCfg)
 

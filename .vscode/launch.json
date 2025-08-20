@@ -29,9 +29,10 @@
             "name": "创建collection pipline",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/create_pipline.py",
+            "program": "${workspaceFolder}/scripts/create_collection.py",
             "console": "integratedTerminal",
             "args": [
+                "--config", "scripts/examples/default.yaml",
                 "--force-recreate"
             ]
         },
@@ -40,10 +41,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/insert_data_to_collection.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--search-config", "/home/weihua/medical-rag/src/MedicalRag/config/search/search_answer.yaml"
-            ]
+            "console": "integratedTerminal"
         },
         {
             "name": "查询 pipeline",
