@@ -62,9 +62,9 @@ search:
 embedding:
   dense:
     provider: ollama                  # ollama | openai | hf
-    model: "nomic-embed-text"
+    model: "bge-m3:latest"
     base_url: "http://172.16.40.51:11434"
-    dim: 768
+    dim: 1024
     normalize: false
     max_concurrent: 8
     proxy: 

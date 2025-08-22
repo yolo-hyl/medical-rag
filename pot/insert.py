@@ -25,12 +25,12 @@ class _EmbedAdapter:
 def build_embedder(kind: str = "ollama", **kwargs):
     """
     统一构造：支持 'ollama'。kwargs 里可放:
-      - model="nomic-embed-text"
+      - model="bge-m3:latest"
       - base_url="http://localhost:11434"
     """
     if kind == "ollama":
         # 文档用 search_document，查询用 search_query —— 下方 prepare_rows 分别实例化
-        model = kwargs.get("model", "nomic-embed-text")
+        model = kwargs.get("model", "bge-m3:latest")
         base_url = kwargs.get("base_url", "http://localhost:11434")
         return OllamaEmbeddings(model=model, base_url=base_url)
     raise ValueError(f"unknown embedder kind: {kind}")
@@ -105,6 +105,6 @@ if __name__ == '__main__':
     data_rows = prepare_rows(
         rows, vocab, vectorizer,
         embedder_kind="ollama",
-        embedder_kwargs={"model": "nomic-embed-text", "base_url": "http://172.16.40.51:11434"}
+        embedder_kwargs={"model": "bge-m3:latest", "base_url": "http://172.16.40.51:11434"}
     )
     insert_rows(client, data_rows)

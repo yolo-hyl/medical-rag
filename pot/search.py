@@ -14,13 +14,13 @@ queries: List[str] = [
 ]
 
 # 2) 批量生成向量（注意前缀与入库一致）
-emb = OllamaEmbeddings(model="nomic-embed-text", base_url="http://172.16.40.51:11434")
+emb = OllamaEmbeddings(model="bge-m3:latest", base_url="http://172.16.40.51:11434")
 
 def add_prefix(texts: List[str], p: str|None):
     return [f"{p} {t}" if p else t for t in texts]
 
-dense_q_list  = emb.embed_documents(add_prefix(queries, "search_query:"))        # N x 768
-dense_qa_list = emb.embed_documents(add_prefix(queries, "search_document:"))     # N x 768
+dense_q_list  = emb.embed_documents(add_prefix(queries, "search_query:"))        # N x 1024
+dense_qa_list = emb.embed_documents(add_prefix(queries, "search_document:"))     # N x 1024
 
 # 稀疏：用你自己的 BM25 计算 N 条
 vocab = Vocabulary.load("vocab.pkl.gz")

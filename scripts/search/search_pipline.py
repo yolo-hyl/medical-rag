@@ -180,9 +180,9 @@ def config_dict_creation():
             "embedding": {
                 "dense": {
                     "provider": "ollama",
-                    "model": "nomic-embed-text",
+                    "model": "bge-m3:latest",
                     "base_url": "http://172.16.40.51:11434",
-                    "dim": 768,
+                    "dim": 1024,
                     "normalize": False,
                     "prefixes": {"query": "", "document": ""}
                 },

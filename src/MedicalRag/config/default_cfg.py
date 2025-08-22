@@ -122,7 +122,7 @@ class DenseEmbedCfg(BaseModel):
     provider: EmbedProvider = "ollama"
     model: str
     base_url: Optional[str] = None
-    dim: int = 768
+    dim: int = 1024
     normalize: bool = False
     max_concurrent: int = 8
     proxy: Optional[str] = None

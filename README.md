@@ -45,7 +45,7 @@ bash standalone_embed.sh start
 
 # 4. 启动 Ollama (可选)
 ollama serve
-ollama pull nomic-embed-text  # 嵌入模型（可自定义）
+ollama pull bge-m3:latest  # 嵌入模型（可自定义）
 ollama pull qwen3:32b        # 标注模型（可自定义）
 ```
 
@@ -64,7 +64,7 @@ milvus:
 embedding:
   dense:
     provider: ollama
-    model: "nomic-embed-text"
+    model: "bge-m3:latest"
     base_url: "http://localhost:11434"
 ```
 
@@ -246,7 +246,7 @@ milvus:
 embedding:
   dense:
     provider: ollama
-    model: "nomic-embed-text"
+    model: "bge-m3:latest"
   sparse_bm25:
     vocab_path: "vocab.pkl.gz"
 

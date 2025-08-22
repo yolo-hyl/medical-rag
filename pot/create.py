@@ -6,7 +6,7 @@ COL = "qa_knowledge"
 
 client = MilvusClient(uri=URI, token=TOKEN)
 
-DENSE_DIM = 768  # ← 改成你实际嵌入维度
+DENSE_DIM = 1024  # ← 改成你实际嵌入维度
 
 schema = client.create_schema(auto_id=False, enable_dynamic_field=True)
 

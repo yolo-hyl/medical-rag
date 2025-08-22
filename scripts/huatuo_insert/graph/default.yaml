@@ -46,10 +46,10 @@ milvus:
       ### 文档类型的数据 ###
       - name: dense_vec_text
         dtype: FLOAT_VECTOR
-        dim: 768
+        dim: 1024
       - name: dense_vec_summary
         dtype: FLOAT_VECTOR
-        dim: 768
+        dim: 1024
       - name: sparse_vec_text
         dtype: SPARSE_FLOAT_VECTOR
       - name: departments
@@ -150,9 +150,9 @@ milvus:
 embedding:
   dense:
     provider: ollama                  # ollama | openai | hf
-    model: "nomic-embed-text"
+    model: "bge-m3:latest"
     base_url: "http://172.16.40.51:11434"
-    dim: 768
+    dim: 1024
     normalize: false
     max_concurrent: 8
     proxy: 
