@@ -29,29 +29,64 @@
             "name": "创建collection pipline",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/create_collection.py",
+            "program": "${workspaceFolder}/scripts/create/create_collection.py",
             "console": "integratedTerminal",
             "args": [
-                "--config", "scripts/examples/default.yaml",
+                "--config", "scripts/create/default.yaml",
                 "--force-recreate"
             ]
         },
         {
-            "name": "入库pipline",
+            "name": "insert-huatuo-qa",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/insert_data_to_collection.py",
+            "program": "${workspaceFolder}/scripts/huatuo_insert/qa/insert_data_to_collection.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "insert-huatuo-graph",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/huatuo_insert/graph/insert_data_to_collection.py",
             "console": "integratedTerminal"
         },
         {
             "name": "查询 pipeline",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/search_pipline.py",
+            "program": "${workspaceFolder}/scripts/search/search_pipline.py",
             "console": "integratedTerminal",
             "args": [
-                "--search-config", "/home/weihua/medical-rag/src/MedicalRag/config/search/search_answer.yaml"
+                "--search-config", "/home/weihua/medical-rag/scripts/search/search_answer.yaml"
             ]
-        }
+        },
+        {
+            "name": "删除数据",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/delete_db.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "启动rag",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/rag/rag.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "构建评测数据集",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/raw_data/raw/train/sample/eval/change_data.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "评测",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/eval/ragas_eval.py",
+            "console": "integratedTerminal"
+        },
     ]
 }

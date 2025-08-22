@@ -4,10 +4,11 @@ from MedicalRag.core.vectorstore.milvus_client import MilvusConn
 from MedicalRag.core.vectorstore.milvus_write import insert_rows
 import logging
 from MedicalRag.data.processor.sparse import Vocabulary, BM25Vectorizer
-from MedicalRag.core.llm.EmbeddingClient import FastEmbeddings
+from MedicalRag.core.embeddings.EmbeddingClient import FastEmbeddings
 from datasets import load_dataset
 import traceback
 from tqdm import tqdm
+import hashlib
 
 # 配置日志
 logging.basicConfig(
@@ -24,12 +25,19 @@ def extract_qa_first(example):
     example["question"] = example["questions"][0][0] if example["questions"] and example["questions"][0] else None
     example["answer"] = example["answers"][0] if example["answers"][0] else None
     example["text"] = f"{example['question']}\n\n{example['answer']}"
+    if len(example["question"]) > 20000:  # 中文1字符占3字节
+        example["question"] = example["question"][0:20000]
+    if len(example["answer"]) > 20000:
+        example["answer"] = example["answer"][0:20000]
+    if len(example["text"]) > 20000:
+        example["text"] = example["text"][0:20000]
+    example["question_hash"] = hashlib.md5(example["question"].encode("utf-8")).hexdigest()
     return example
 
 
 def main():
     ########  加载配置  ############
-    cfg = load_cfg("scripts/default.yaml")  
+    cfg = load_cfg("/home/weihua/medical-rag/scripts/huatuo_insert/qa/default.yaml")  
 
     ########  连接与集合  ############
     conn = MilvusConn(cfg)
@@ -42,33 +50,42 @@ def main():
     ########  加载自定义的词表和BM25算法配置  ############
     
     ########  加载数据集  ############
-    # rows = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/tf-data/qa/*.json", split="train")
-    data = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/raw/train/qa_train_datasets.jsonl", split="train")
-    data = data.map(extract_qa_first)
+    data = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/raw/train/sample/qa_50000.jsonl", split="train")
+    # data = data.map(extract_qa_first)
+    # data = data.select(range(100))
+    data = data.select_columns(["question", "answer", "text", "question_hash"])
     
-    data = data.select_columns(["question", "answer", "text"])
     ########  加载数据集  ############
     
     
     ########  组装数据  ############# 
     emb = FastEmbeddings(cfg.embedding.dense)
     try:
-        dense_text = emb.embed_documents(data['text'], show_progress=True, batch_size=32)
+        dense_text = emb.embed_documents(data['text'], show_progress=True, batch_size=128)
+        dense_summary = emb.embed_documents(data['question'], show_progress=True, batch_size=128)
         avgdl = max(1.0, vocab.sum_dl / max(1, vocab.N))
-        data_rows = []
+        data = data.add_column("text_embed", dense_text)
+        data = data.add_column("summary_embed", dense_summary)
+        sp_texts = []
         for i in tqdm(range(len(data)), desc="tokenize"):
             text_tokens = vectorizer.tokenize(data['text'][i])
             sp_text = vectorizer.build_sparse_vec_from_tokens(text_tokens, avgdl, update_vocab=False)
             if cfg.embedding.sparse_bm25.prune_empty_sparse and not sp_text:
                 sp_text = cfg.embedding.sparse_bm25.empty_sparse_fallback
+            sp_texts.append(sp_text)
+        data.to_json("/home/weihua/medical-rag/raw_data/raw/train/sample/qa_embed_50000.json", orient="records", force_ascii=False)
+        data_rows = []
+        for i in tqdm(range(len(data)), desc="append data"):
             data_rows.append({
+                "pk": data["question_hash"][i],
                 "question": data["question"][i],
                 "answer": data["answer"][i],
                 "text": data["text"][i],
                 "doc_id": "",
                 "chunk_id": -1,
-                "dense_vec_text":  dense_text[i],
-                "sparse_vec_text": sp_text,
+                "dense_vec_text": data["text_embed"][i],
+                "sparse_vec_text": sp_texts[i],
+                "dense_vec_summary": data["summary_embed"][i],
                 "departments": [],
                 "categories": [],
                 "source": "qa",
@@ -83,3 +100,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    print("插入完成！")

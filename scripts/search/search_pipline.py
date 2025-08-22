@@ -184,14 +184,13 @@ def config_dict_creation():
                     "base_url": "http://172.16.40.51:11434",
                     "dim": 768,
                     "normalize": False,
-                    "prefixes": {"query": "search_query:", "document": "search_document:"}
+                    "prefixes": {"query": "", "document": ""}
                 },
                 "sparse_bm25": {
                     "vocab_path": "vocab.pkl.gz",
                     "domain_model": "medicine",
                     "prune_empty_sparse": True,
                     "empty_sparse_fallback": {"0": 0.0},
-                    "stopwords": ["什么", "？", "是", "如何"],
                     "k1": 1.5,
                     "b": 0.75
                 }
@@ -230,8 +229,8 @@ def main():
     
     args = parser.parse_args()
     
-    query = "梅毒"
-    batch_queries = ["梅毒", "巨肠症是什么疾病？可以治愈吗？", "最广泛的传染病"]
+    query = "曲匹地尔用于治疗什么疾病？"
+    # batch_queries = ["请描述呼吸衰竭的诊断方法", "巨肠症是什么疾病？可以治愈吗？", "最广泛的传染病"]
     
     # 选择配置文件，也可以不传，default配置也需要配置一些默认search规则
     config_path = args.search_config
@@ -254,31 +253,30 @@ def main():
     print(f"\n{'='*50}")
     print(f"单次查询")
     print(f"{'='*50}")
-    results = pipeline.search_single(query, expr_vars={"*": "dept_pk == '0'"})
+    results = pipeline.search_single(query, expr_vars={}, limit=2)
     print_search_results([query], [results])
     
     # 批量查询
-    print(f"\n{'='*50}")
-    print(f"批量查询")
-    print(f"{'='*50}")
-    results = pipeline.search(batch_queries, expr_vars={"sparse_q": "source_name == 'huatuo_qa'"})
-    print_search_results(batch_queries, results)
+    # print(f"\n{'='*50}")
+    # print(f"批量查询")
+    # print(f"{'='*50}")
+    # results = pipeline.search(batch_queries, expr_vars={})
+    # print_search_results(batch_queries, results)
     
-    # 过滤查询
-    print(f"\n{'='*50}")
-    print(f"过滤查询")
-    print(f"{'='*50}")
-    test_cases = [
-        {"sparse_q": "source_name == 'huatuo_qa'"},
-        {"sparse_q": "dept == '1'"},
-    ]
-    for i, expr_vars in enumerate(test_cases):
-        print(f"当前表达式：{expr_vars}")
-        results = pipeline.search_single(query, expr_vars=expr_vars)
-        print_search_results([query], [results])
+    # # 过滤查询
+    # print(f"\n{'='*50}")
+    # print(f"过滤查询")
+    # print(f"{'='*50}")
+    # test_cases = [
+    #     {"sparse_q": "source_name == 'qa'"},
+    # ]
+    # for i, expr_vars in enumerate(test_cases):
+    #     print(f"当前表达式：{expr_vars}")
+    #     results = pipeline.search_single(query, expr_vars=expr_vars)
+    #     print_search_results([query], [results])
     
-    # 自定义通道更新
-    channel_update(pipeline)
+    # # 自定义通道更新
+    # channel_update(pipeline)
 
 
 if __name__ == "__main__":

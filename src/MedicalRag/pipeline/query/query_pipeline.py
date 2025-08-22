@@ -246,8 +246,6 @@ class QueryPipeline:
         self,
         queries: List[str],
         expr_vars: Optional[Dict[str, Any]] = None,
-        page: int = 1,
-        page_size: Optional[int] = None,
         limit_override: Optional[int] = None
     ) -> List[List[Dict[str, Any]]]:
         """
@@ -271,8 +269,7 @@ class QueryPipeline:
             results = self.retriever.search(
                 queries=queries,
                 expr_vars=expr_vars,
-                page=page,
-                page_size=page_size
+                limit_override=limit_override
             )
             
             # 转换结果格式

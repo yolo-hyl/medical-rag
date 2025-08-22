@@ -46,8 +46,7 @@ class HybridRetriever:
         self,
         queries: List[str],
         expr_vars: Optional[Dict[str, Any]] = None,
-        page: int = 1,
-        page_size: Optional[int] = None
+        limit_override: Optional[int] = None
     ):
         req_data = self.prepare_query_channels(queries)
         return hybrid_search(
@@ -55,6 +54,5 @@ class HybridRetriever:
             cfg=self.cfg,
             req_data=req_data,
             expr_vars=expr_vars,
-            page=page,
-            page_size=page_size
+            limit_override=limit_override
         )

@@ -18,7 +18,7 @@ search:
     page_size: 10
     max_pages: 1
   rrf:
-    enabled: false   
+    enabled: true   
     k: 100
   channels:
     - name: dense_doc
@@ -38,7 +38,7 @@ search:
       limit: 5
       params: { drop_ratio_search: 0.0 }
       expr: ''
-      weight: 0.4
+      weight: 0.3
     - name: dense_q
       field: dense_vec_summary
       enabled: true
@@ -47,7 +47,16 @@ search:
       limit: 5
       params: { ef: 256 }
       expr: ''   
-      weight: 0.2
+      weight: -1
+    - name: sparse_doc
+      field: sparse_vec_qa
+      enabled: false
+      kind: sparse_document
+      metric_type: IP
+      limit: 5
+      params: { drop_ratio_search: 0.0 }
+      expr: ''   
+      weight: 0.4
 
 # 添加embedding配置，这是search需要的
 embedding:

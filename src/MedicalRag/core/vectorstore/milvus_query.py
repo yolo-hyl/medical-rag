@@ -23,27 +23,19 @@ def _make_req(data_list: List[Any], channel: ChannelCfg, expr: str) -> AnnSearch
         expr=expr
     )
 
-def _page_to_offset(page: int, page_size: int) -> int:
-    page = max(1, page)
-    return (page - 1) * page_size
-
 def hybrid_search(
     client: MilvusClient,
     cfg: AppCfg,
     req_data: Dict[str, List[Any]],          # key: channel.name -> N 条数据
     expr_vars: Optional[Dict[str, Any]] = None,
-    page: int = 1,
-    page_size: Optional[int] = None,
     limit_override: Optional[int] = None,
     output_fields: Optional[List[str]] = None
 ):
     sch = cfg.milvus.search
-    page_size = page_size or sch.pagination.page_size
-    offset = _page_to_offset(page, page_size)
     output_fields = output_fields or sch.output_fields
 
     reqs = []
-    if "*" in expr_vars:
+    if expr_vars and "*" in expr_vars:
         v = expr_vars["*"]
         expr_vars = {ch.name: v for ch in sch.channels}
         logging.info("检测到通配符，忽略所有其他配置")
@@ -53,8 +45,8 @@ def hybrid_search(
         dl = req_data.get(ch.name)
         if not dl:
             continue
-        expr = expr_vars.get(ch.name, "")  # 优先使用传入的
-        if expr == "":  # 在使用配置中的
+        expr = expr_vars.get(ch.name, "") if expr_vars else ""  # 优先使用传入的
+        if expr == "":  # 再使用配置中的
             expr = ch.expr
         reqs.append(_make_req(dl, ch, expr))
     
@@ -75,7 +67,6 @@ def hybrid_search(
         reqs=reqs,
         ranker=ranker,
         limit=limit_override or sch.default_limit,
-        offset=offset,
         output_fields=output_fields
     )
     return res

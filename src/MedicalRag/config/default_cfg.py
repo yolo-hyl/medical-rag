@@ -139,7 +139,6 @@ class SparseBM25Cfg(BaseModel):
     domain_model: str = "medicine"
     prune_empty_sparse: bool = True
     empty_sparse_fallback: Dict[int, float] = Field(default_factory=lambda: {0: 0.0})
-    stopwords: List[str] = Field(default_factory=list)
     k1: float = 1.5
     b: float = 0.75
 

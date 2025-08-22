@@ -1,3 +1,0 @@
-"""
-PyPDFLoader 封装
-"""

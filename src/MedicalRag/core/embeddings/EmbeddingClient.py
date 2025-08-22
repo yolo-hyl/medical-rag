@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional, Callable, Iterable, Tuple
 from ...config.default_cfg import DenseEmbedCfg
-from .HttpClient import OllamaClient
+from ..llm.HttpClient import OllamaClient
 
 # 尝试引入 tqdm，用于进度条展示；未安装则自动降级为无进度条
 try:

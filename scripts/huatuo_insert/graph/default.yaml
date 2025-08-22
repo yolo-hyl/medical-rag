@@ -11,25 +11,19 @@ milvus:
     tls: false
     tls_verify: false          # 自签名可关
   collection:
-    name: "qa_knowledge"  # collection名字
-    description: "RAG QA knowledge base"  # collection描述
+    name: "medical_knowledge"  # collection名字
+    description: "RAG medical knowledge base"  # collection描述
     recreate_if_exists: false  # 开发期可设 true，生产要小心
-    num_partitions: 128
     load_on_start: true
     properties:
-      partitionkey.isolation: true     # 仅 HNSW 生效
   schema:
-    auto_id: true
+    auto_id: false
     enable_dynamic_field: true
     fields:
-      - name: id
+      - name: pk
         dtype: VARCHAR
         max_length: 64
         is_primary: true
-      - name: dept_pk
-        dtype: INT64
-        max_length: 32
-        is_partition_key: true
       - name: question
         dtype: VARCHAR
         max_length: 65535
@@ -38,19 +32,25 @@ milvus:
         dtype: VARCHAR
         max_length: 65535
         enable_analyzer: true
-      - name: qa_text
+      - name: text
         dtype: VARCHAR
         max_length: 65535
         enable_analyzer: true
-      - name: dense_vec_q
+      ### 文档类型的数据 ###
+      - name: doc_id
+        dtype: VARCHAR
+        max_length: 65535
+        enable_analyzer: true
+      - name: chunk_id
+        dtype: INT64
+      ### 文档类型的数据 ###
+      - name: dense_vec_text
         dtype: FLOAT_VECTOR
         dim: 768
-      - name: dense_vec_qa
+      - name: dense_vec_summary
         dtype: FLOAT_VECTOR
         dim: 768
-      - name: sparse_vec_q
-        dtype: SPARSE_FLOAT_VECTOR
-      - name: sparse_vec_qa
+      - name: sparse_vec_text
         dtype: SPARSE_FLOAT_VECTOR
       - name: departments
         dtype: ARRAY
@@ -62,27 +62,23 @@ milvus:
         element_type: INT64
         max_length: 32
         max_capacity: 8
-      - name: source_name
+      - name: source
         dtype: VARCHAR
         max_length: 65535
   index:
     build_on_create: true
     by_field:
-      dense_vec_qa:
+      dense_vec_text:
         index_type: HNSW
         metric_type: COSINE           # 与嵌入相匹配（COSINE/IP）
         params: { M: 32, efConstruction: 200 }
-      dense_vec_q:
+      dense_vec_summary:
         index_type: HNSW
-        metric_type: COSINE
+        metric_type: COSINE           # 与嵌入相匹配（COSINE/IP）
         params: { M: 32, efConstruction: 200 }
-      sparse_vec_qa:
+      sparse_vec_text:
         index_type: SPARSE_INVERTED_INDEX
         metric_type: IP               # 手动 BM25 用 IP；内置 BM25 用 BM25
-        params: { inverted_index_algo: DAAT_MAXSCORE }
-      sparse_vec_q:
-        index_type: SPARSE_INVERTED_INDEX
-        metric_type: IP
         params: { inverted_index_algo: DAAT_MAXSCORE }
 
   search:

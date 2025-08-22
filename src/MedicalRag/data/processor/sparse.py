@@ -4,6 +4,7 @@ import pkuseg
 from multiprocessing import Pool, cpu_count
 import os, gzip, pickle, math
 from pathlib import Path
+from stopwords import stopwords, filter_stopwords
 
 current_dir = Path(__file__).resolve().parent
 default_vocab_dir = str(current_dir) + "/vocab/"
@@ -23,7 +24,7 @@ def _cut_worker(text: str) -> List[str]:
     """
     子进程真正执行的分词函数
     """
-    toks = _SEG.cut(text)
+    toks = filter_stopwords(_SEG.cut(text))
     return [t.strip() for t in toks if t.strip()]
 
 
@@ -117,7 +118,7 @@ class BM25Vectorizer:
 
     # --- 单进程分词 ---
     def tokenize(self, text: str) -> List[str]:
-        return [t.strip() for t in self.seg.cut(text) if t.strip()]
+        return [t.strip() for t in filter_stopwords(self.seg.cut(text)) if t.strip()]
 
     # --- 多进程分词（批处理/流式产出）---
     def tokenize_parallel(

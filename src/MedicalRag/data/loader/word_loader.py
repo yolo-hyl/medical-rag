@@ -1,3 +1,0 @@
-"""
-UnstructuredWordDocumentLoader 封装
-"""
