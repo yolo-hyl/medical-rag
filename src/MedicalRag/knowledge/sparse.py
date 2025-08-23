@@ -91,30 +91,34 @@ class Vocabulary:
 
     @classmethod
     def load(cls, path_or_name: str):
-        
-        if '/' not in path_or_name:  # 直接传入的名字
-            path = str(default_vocab_dir) + "/" + path_or_name
+        try:
+            if '/' not in path_or_name:  # 直接传入的名字
+                path = str(default_vocab_dir) + "/" + path_or_name
             
-        with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as f:
-            state = pickle.load(f)
-        v = cls()
-        v.token2id = state["token2id"]
-        v.df = state["df"]
-        v.N = state["N"]
-        v.sum_dl = state.get("sum_dl", 0)
-        v.idf_arr = state.get("idf_arr", None)
-        return v
+            with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as f:
+                state = pickle.load(f)
+            v = cls()
+            v.token2id = state["token2id"]
+            v.df = state["df"]
+            v.N = state["N"]
+            v.sum_dl = state.get("sum_dl", 0)
+            v.idf_arr = state.get("idf_arr", None)
+            return v
+        except Exception as e:
+            print(e)
+            return None
+        
 
 # ====== 并行分词 + BM25 ======
 class BM25Vectorizer:
-    def __init__(self, vocab: Vocabulary, domain_model: str = "medicine"):
+    def __init__(self, vocab: Vocabulary, domain_model: str = "medicine", k1: float = 1.5, b: float = 0.75):
         # 单进程下仍可直接用
         self.seg = pkuseg.pkuseg(model_name=domain_model)  
         self.domain_model = domain_model
         self.vocab = vocab
         # BM25 参数
-        self.k1 = 1.5
-        self.b = 0.75
+        self.k1 = k1
+        self.b = b
 
     # --- 单进程分词 ---
     def tokenize(self, text: str) -> List[str]:

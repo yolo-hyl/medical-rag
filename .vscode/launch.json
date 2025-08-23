@@ -9,84 +9,46 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "标注数据",
+            "name": "01_build_vocab",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/annotation.py",
+            "program": "${workspaceFolder}/scripts/01_build_vocab.py",
             "console": "integratedTerminal",
-            "args": [
-                "/home/weihua/medical-rag/src/MedicalRag/config/data/annotator.yaml"
-            ]
         },
         {
-            "name": "构建稀疏向量词表",
+            "name": "02_ingest_data",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/build_vocab.py",
+            "program": "${workspaceFolder}/scripts/02_ingest_data.py",
             "console": "integratedTerminal"
         },
         {
-            "name": "创建collection pipline",
+            "name": "03_annotate_data",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/create/create_collection.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--config", "scripts/create/default.yaml",
-                "--force-recreate"
-            ]
-        },
-        {
-            "name": "insert-huatuo-qa",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/huatuo_insert/qa/insert_data_to_collection.py",
+            "program": "${workspaceFolder}/scripts/03_annotate_data.py",
             "console": "integratedTerminal"
         },
         {
-            "name": "insert-huatuo-graph",
+            "name": "04_basic_rag",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/huatuo_insert/graph/insert_data_to_collection.py",
+            "program": "${workspaceFolder}/scripts/04_basic_rag.py",
             "console": "integratedTerminal"
         },
         {
-            "name": "查询 pipeline",
+            "name": "05_agent_rag",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/search/search_pipline.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--search-config", "/home/weihua/medical-rag/scripts/search/search_answer.yaml"
-            ]
-        },
-        {
-            "name": "删除数据",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/delete_db.py",
+            "program": "${workspaceFolder}/scripts/05_agent_rag.py",
             "console": "integratedTerminal"
         },
         {
-            "name": "启动rag",
+            "name": "06_simple_search",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/rag/rag.py",
+            "program": "${workspaceFolder}/scripts/06_simple_search.py",
             "console": "integratedTerminal"
-        },
-        {
-            "name": "构建评测数据集",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/raw_data/raw/train/sample/eval/change_data.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "评测",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/eval/ragas_eval.py",
-            "console": "integratedTerminal"
-        },
+        }
     ]
 }

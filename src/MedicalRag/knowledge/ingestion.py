@@ -31,7 +31,7 @@ class DataProcessor:
             dataset = load_dataset('parquet', data_files=self.config.path, split='train')
         else:
             raise ValueError(f"不支持的数据格式: {self.config.format}")
-        
+        dataset = dataset.select(range(20))
         logger.info(f"成功加载数据集，共 {len(dataset)} 条记录")
         return dataset
     
@@ -45,7 +45,7 @@ class DataProcessor:
             answer = record.get(self.config.answer_field, "")
             
             # 组合文本
-            content = f"问题: {question}\n\n答案: {answer}"
+            content = f"{question}\n\n{answer}"
             
             # 构建元数据
             metadata = {
@@ -58,7 +58,7 @@ class DataProcessor:
             if self.config.id_field and self.config.id_field in record:
                 doc_id = str(record[self.config.id_field])
             else:
-                doc_id = hashlib.md5(content.encode('utf-8')).hexdigest()
+                doc_id = hashlib.md5(question.encode('utf-8')).hexdigest()
             metadata["id"] = doc_id
             
             # 保留其他字段

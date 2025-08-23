@@ -1,103 +1,79 @@
-# config/app_config.yaml
-# 应用主配置文件
-
-# Milvus配置
+# 完整应用配置示例
 milvus:
   uri: "http://localhost:19530"
-  token: "root:Milvus"  # 可选
-  collection_name: "medical_knowledge"
+  token: null
+  collection_name: "medical_knowledge2"
   drop_old: false
   auto_id: true
 
-# 嵌入配置
 embedding:
-  # 稠密向量配置
   dense:
-    provider: "ollama"  # ollama | openai
-    model: "bge-m3:latest"
+    provider: "ollama"
+    model: "bge-m3:latest" 
     base_url: "http://localhost:11434"
-    # api_key: "your-key"  # OpenAI时需要
-    # proxy: "http://localhost:10809"  # 可选代理
+    api_key: null
+    proxy: null
     dimension: 1024
-  
-  # 稀疏向量配置
   sparse:
-    manager: "self"  # self: 自管理BM25 | milvus: 使用Milvus内置BM25
+    manager: "self"  # self 或 milvus
     vocab_path: "vocab.pkl.gz"
     domain_model: "medicine"
     k1: 1.5
     b: 0.75
+    workers: 8
+    chunksize: 64
 
-# LLM配置
 llm:
-  provider: "ollama"  # ollama | openai
+  provider: "ollama"
   model: "qwen3:32b"
   base_url: "http://localhost:11434"
-  # api_key: "your-key"  # OpenAI时需要
-  # proxy: "http://localhost:10809"  # OpenAI时可选
+  api_key: null
+  proxy: null
   temperature: 0.1
-  # max_tokens: 4000  # 可选
+  max_tokens: null
 
-# 数据配置
 data:
   path: "/home/weihua/medical-rag/raw_data/raw/train/sample/qa_50000.jsonl"
-  format: "json"  # jsonl | json | parquet
-  # 字段映射
-  question_field: "question"
-  answer_field: "answer"
-  id_field: "id"  # 可选
-  source_field: "source"  # 可选
-  default_source: "unknown"
-  batch_size: 100
-
-# 检索配置
-search:
-  top_k: 10
-  score_threshold: 0.5  # 可选
-  rrf_k: 100  # RRF重排参数
-  output_fields: ["question", "answer", "source"]
-  # filters: {"source": "某个来源"}  # 可选默认过滤器
-
----
-# config/milvus_bm25_config.yaml
-# 使用Milvus内置BM25的配置示例
-
-milvus:
-  uri: "http://localhost:19530"
-  token: "root:Milvus"
-  collection_name: "medical_knowledge_v2"
-  drop_old: false
-  auto_id: true
-
-embedding:
-  dense:
-    provider: "openai"
-    model: "text-embedding-3-small"
-    api_key: "your-openai-key"
-    base_url: "https://api.openai.com/v1"
-    proxy: "http://localhost:10809"
-    dimension: 1536
-  
-  sparse:
-    manager: "milvus"  # 使用Milvus内置BM25
-
-llm:
-  provider: "openai"
-  model: "gpt-4o-mini"
-  api_key: "your-openai-key"
-  base_url: "https://api.openai.com/v1"
-  proxy: "http://localhost:10809"
-  temperature: 0.1
-  max_tokens: 4000
-
-data:
-  path: "/path/to/your/data.jsonl"
   format: "jsonl"
   question_field: "question"
   answer_field: "answer"
-  batch_size: 50
+  id_field: null
+  source_field: null
+  default_source: "unknown"
+  batch_size: 100
 
 search:
-  top_k: 5
+  top_k: 10
+  score_threshold: null
   rrf_k: 100
   output_fields: ["question", "answer", "source"]
+  filters: null
+
+# 新增配置部分
+ingestion:
+  batch_size: 100
+  max_workers: 4
+  max_retries: 3
+  build_vocab_if_needed: true
+  clean_text: true
+  remove_duplicates: true
+
+annotation:
+  max_concurrent: 3
+  batch_size: 10
+  model_backend: "ollama"
+  model_base_url: "http://localhost:11434" 
+  model_name: "qwen3:32b"
+  departments_enabled: true
+  categories_enabled: true
+  
+rag:
+  mode: "basic"
+  retrieval:
+    top_k: 10
+    dense_weight: 0.5
+    sparse_weight: 0.5
+  generation:
+    temperature: 0.1
+    include_sources: true
+    max_sources: 3

@@ -1,0 +1,50 @@
+# 标注配置
+# 并发控制
+max_concurrent: 3
+batch_size: 10
+
+# 重试机制
+max_retries: 3
+retry_delay: 2.0
+
+# 模型配置
+model_backend: "ollama"  # ollama, openai, vllm
+model_base_url: "http://localhost:11434"  # 仅ollama/vllm需要
+model_name: "qwen3:32b"
+temperature: 0.1
+max_tokens: 2000
+timeout: 120
+
+# 标注选项
+departments_enabled: true
+categories_enabled: true
+confidence_threshold: 0.8
+
+# 科室分类 (6大科室)
+department_labels:
+  - "内科"
+  - "外科" 
+  - "妇产儿科"
+  - "五官科"
+  - "皮肤性病科"
+  - "其他科室"
+
+# 问题类别 (8大类别)
+category_labels:
+  - "疾病诊断"
+  - "症状咨询"
+  - "治疗方案"
+  - "药物咨询"
+  - "检查化验"
+  - "预防保健"
+  - "康复指导"
+  - "其他咨询"
+
+# 结果保存
+save_intermediate: true
+intermediate_save_interval: 100
+validate_results: true
+
+# 提示词配置
+use_custom_prompts: false
+custom_prompts_path: null

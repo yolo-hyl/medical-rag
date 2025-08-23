@@ -1,0 +1,75 @@
+# RAG配置
+# 模式选择: basic(基础RAG) 或 agent(智能体RAG)
+mode: "basic"
+
+# 检索配置
+retrieval:
+  top_k: 10
+  score_threshold: null
+  rerank_top_k: null
+  
+  # 混合检索权重
+  dense_weight: 0.5
+  sparse_weight: 0.5
+  
+  # 过滤器
+  enable_filters: true
+  default_filters: null
+  
+  # 重排序
+  enable_rerank: false
+  rerank_model: null
+
+# 生成配置
+generation:
+  temperature: 0.1
+  max_tokens: 2000
+  top_p: 0.9
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  
+  # 回答格式
+  include_sources: true
+  max_sources: 3
+  source_format: "simple"  # simple 或 detailed
+  
+  # 安全检查
+  enable_safety_check: true
+  max_response_length: 5000
+
+# 智能体RAG配置 (仅当mode='agent'时生效)
+agent_config:
+  # 工具使用
+  enable_web_search: false
+  web_search_engine: "brave"  # brave, google, bing
+  web_search_max_results: 5
+  
+  # 计算工具
+  enable_calculator: true
+  
+  # 决策参数
+  max_iterations: 5
+  planning_enabled: true
+  
+  # 自主检索
+  auto_retrieval: true
+  adaptive_k: true  # 动态调整检索数量
+  
+  # 多源信息融合
+  multi_source_fusion: true
+  source_priority:
+    - "knowledge_base"
+    - "web_search" 
+    - "calculation"
+
+# 提示词配置
+system_prompt_template: "medical_qa_system"
+user_prompt_template: "medical_qa_user"
+
+# 对话历史
+enable_chat_history: false
+max_history_length: 10
+
+# 缓存配置
+enable_cache: true
+cache_ttl: 3600  # 缓存时间(秒)

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     # 加载配置
-    config = load_config_from_file("config/app_config.yaml")
+    config = load_config_from_file("/home/weihua/medical-rag/src/MedicalRag/config/app_config.yaml")
     
     logger.info("开始数据入库...")
     

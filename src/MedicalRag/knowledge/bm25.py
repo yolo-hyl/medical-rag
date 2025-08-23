@@ -21,23 +21,32 @@ logger = logging.getLogger(__name__)
 class SimpleBM25Manager:
     """简化的BM25管理器，兼容langchain"""
     
-    def __init__(self, vocab_path: str = "vocab.pkl.gz", domain_model: str = "medicine"):
+    def __init__(
+        self, 
+        vocab_path: str = "vocab.pkl.gz", 
+        domain_model: str = "medicine", 
+        workers: int = 8, 
+        chunksize: int = 64
+    ):
         self.vocab_path = vocab_path
         self.domain_model = domain_model
         self._vocab = None
         self._vectorizer = None
+        self.workers = workers
+        self.chunksize = chunksize
     
     @property
     def vocab(self) -> Vocabulary:
         """获取词表"""
         if self._vocab is None:
             vocab_file = Path(self.vocab_path)
-            if vocab_file.exists():
-                self._vocab = Vocabulary.load(str(vocab_file))
-                logger.info(f"加载词表: {vocab_file}, 包含 {len(self._vocab.token2id)} 个词汇")
-            else:
+            logger.info(f"尝试加载{str(vocab_file)}")
+            self._vocab = Vocabulary.load(str(vocab_file))
+            if self._vocab is None:
                 self._vocab = Vocabulary()
                 logger.info("创建新词表")
+            else:
+                logger.info(f"加载词表: {vocab_file}, 包含 {len(self._vocab.token2id)} 个词汇")
         return self._vocab
     
     @property
@@ -50,7 +59,7 @@ class SimpleBM25Manager:
                 vocab_path=self.vocab_path,
                 domain_model=self.domain_model
             )
-            self._vectorizer = BM25Vectorizer(self.vocab, config)
+            self._vectorizer = BM25Vectorizer(vocab=self.vocab, domain_model=config.domain_model, k1=config.k1, b=config.b)
         return self._vectorizer
     
     def build_vocab_from_texts(self, texts: List[str]) -> None:
@@ -58,7 +67,7 @@ class SimpleBM25Manager:
         logger.info(f"构建词表，文本数量: {len(texts)}")
         
         # 使用原项目的并行分词
-        for tokens in self.vectorizer.tokenize_parallel(texts):
+        for tokens in self.vectorizer.tokenize_parallel(texts, workers=self.workers, chunksize=self.chunksize):
             self.vocab.add_document(tokens)
         
         self.vocab.freeze()
