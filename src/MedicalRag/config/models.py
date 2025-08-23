@@ -6,6 +6,59 @@ from typing import Dict, List, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field
 
 # =============================================================================
+# 多向量字段配置 (新增)
+# =============================================================================
+class VectorFieldConfig(BaseModel):
+    """单个向量字段配置"""
+    name: str
+    embedding_config: 'DenseConfig'
+    index_params: Optional[Dict[str, Any]] = None
+    search_params: Optional[Dict[str, Any]] = None
+
+class MultiVectorConfig(BaseModel):
+    """多向量字段配置"""
+    enabled: bool = True
+    
+    # 向量字段定义
+    question_vector: VectorFieldConfig = Field(
+        default_factory=lambda: VectorFieldConfig(
+            name="vec_question",
+            embedding_config=DenseConfig(
+                provider="ollama",
+                model="bge-m3:latest",
+                dimension=1024
+            )
+        )
+    )
+    
+    text_vector: VectorFieldConfig = Field(
+        default_factory=lambda: VectorFieldConfig(
+            name="vec_text", 
+            embedding_config=DenseConfig(
+                provider="ollama",
+                model="bge-m3:latest",
+                dimension=1024
+            )
+        )
+    )
+    
+    # BM25稀疏向量配置
+    sparse_vector: Dict[str, Any] = Field(default_factory=lambda: {
+        "name": "sparse",
+        "use_builtin_bm25": True,  # 使用Milvus内置BM25
+        "analyzer_params": {}  # BM25分析器参数
+    })
+    
+    # 重排配置
+    reranker: Dict[str, Any] = Field(default_factory=lambda: {
+        "type": "weighted",  # weighted 或 rrf
+        "params": {
+            "weights": [0.4, 0.3, 0.3]  # [question_vec, text_vec, sparse_vec]
+        }
+    })
+
+
+# =============================================================================
 # Milvus 配置
 # =============================================================================
 class MilvusConfig(BaseModel):
@@ -40,10 +93,15 @@ class DenseConfig(BaseModel):
     proxy: Optional[str] = None
     dimension: int = 1024
 
+# 更新嵌入配置，支持多向量
 class EmbeddingConfig(BaseModel):
-    """嵌入配置"""
+    """嵌入配置 - 更新版"""
+    # 原有的单一嵌入配置（向后兼容）
     dense: DenseConfig
     sparse: SparseConfig
+    
+    # 新增的多向量配置
+    multi_vector: MultiVectorConfig = Field(default_factory=MultiVectorConfig)
 
 # =============================================================================
 # LLM 配置
@@ -76,16 +134,38 @@ class DataConfig(BaseModel):
 # =============================================================================
 # 检索配置
 # =============================================================================
+class HybridSearchConfig(BaseModel):
+    """混合搜索配置"""
+    enabled: bool = True
+    
+    # 多向量字段权重
+    field_weights: Dict[str, float] = Field(default_factory=lambda: {
+        "vec_question": 0.4,
+        "vec_text": 0.3, 
+        "sparse": 0.3
+    })
+    
+    # 重排策略
+    ranker_type: Literal["weighted", "rrf"] = "weighted"
+    ranker_params: Dict[str, Any] = Field(default_factory=lambda: {
+        "weights": [0.4, 0.3, 0.3]
+    })
+    
+    # 检索参数
+    top_k_per_field: Optional[List[int]] = None  # 每个字段的top-k
+    final_top_k: int = 10  # 最终返回的top-k
+
 class SearchConfig(BaseModel):
-    """检索配置"""
+    """检索配置 - 更新版"""
+    # 原有配置（向后兼容）
     top_k: int = 10
     score_threshold: Optional[float] = None
-    # 混合检索权重 (RRF参数)
     rrf_k: int = 100
-    # 输出字段
     output_fields: List[str] = Field(default_factory=lambda: ["question", "answer", "source"])
-    # 默认过滤器
     filters: Optional[Dict[str, Any]] = None
+    
+    # 新增混合搜索配置
+    hybrid_search: HybridSearchConfig = Field(default_factory=HybridSearchConfig)
 
 # =============================================================================
 # 数据入库配置
@@ -166,22 +246,35 @@ class AnnotationConfig(BaseModel):
 # RAG配置
 # =============================================================================
 class RetrievalConfig(BaseModel):
-    """检索配置"""
-    # 检索参数
+    """检索配置 - 更新版"""
+    # 基础检索参数
     top_k: int = 10
     score_threshold: Optional[float] = None
     rerank_top_k: Optional[int] = None
     
-    # 混合检索权重
-    dense_weight: float = 0.5
-    sparse_weight: float = 0.5
+    # 混合检索模式
+    hybrid_mode: bool = True  # 是否启用混合检索
+    
+    # 多向量字段配置
+    use_question_vector: bool = True   # 是否使用问题向量
+    use_text_vector: bool = True       # 是否使用文本向量
+    use_sparse_vector: bool = True     # 是否使用稀疏向量
+    
+    # 动态权重调整
+    adaptive_weights: bool = False     # 是否根据查询类型动态调整权重
+    query_type_weights: Dict[str, List[float]] = Field(default_factory=lambda: {
+        "symptom": [0.5, 0.3, 0.2],      # 症状类查询：更重视问题匹配
+        "treatment": [0.3, 0.4, 0.3],    # 治疗类查询：更重视内容匹配
+        "prevention": [0.3, 0.4, 0.3],   # 预防类查询：更重视内容匹配
+        "default": [0.4, 0.3, 0.3]       # 默认权重
+    })
     
     # 过滤器
     enable_filters: bool = True
     default_filters: Optional[Dict[str, Any]] = None
     
     # 重排序
-    enable_rerank: bool = False
+    enable_rerank: bool = True
     rerank_model: Optional[str] = None
 
 class GenerationConfig(BaseModel):
@@ -259,12 +352,60 @@ RAGConfig.model_rebuild()
 # 更新主配置类
 # =============================================================================
 class AppConfig(BaseModel):
-    """应用主配置"""
+    """应用主配置 - 更新版"""
     milvus: MilvusConfig
-    embedding: EmbeddingConfig
+    embedding: EmbeddingConfig  # 包含multi_vector配置
     llm: LLMConfig
     data: DataConfig
-    search: SearchConfig
+    search: SearchConfig        # 包含hybrid_search配置
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
-    annotation: AnnotationConfig = Field(default_factory=AnnotationConfig)  
+    annotation: AnnotationConfig = Field(default_factory=AnnotationConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
+    
+    
+    
+def create_multi_vector_config(
+    question_model: str = "bge-m3:latest",
+    text_model: str = "text-embedding-3-large",
+    provider: str = "ollama",
+    weights: List[float] = None
+) -> MultiVectorConfig:
+    """创建多向量配置的便捷函数"""
+    if weights is None:
+        weights = [0.4, 0.3, 0.3]
+    
+    return MultiVectorConfig(
+        question_vector=VectorFieldConfig(
+            name="vec_question",
+            embedding_config=DenseConfig(
+                provider=provider,
+                model=question_model,
+                dimension=1024
+            )
+        ),
+        text_vector=VectorFieldConfig(
+            name="vec_text",
+            embedding_config=DenseConfig(
+                provider=provider if provider != "openai" else "openai",
+                model=text_model,
+                dimension=1024 if provider != "openai" else 3072
+            )
+        ),
+        reranker={
+            "type": "weighted",
+            "params": {"weights": weights}
+        }
+    )
+
+def create_hybrid_search_config(
+    ranker_type: str = "weighted",
+    weights: List[float] = None
+) -> HybridSearchConfig:
+    """创建混合搜索配置的便捷函数"""
+    if weights is None:
+        weights = [0.4, 0.3, 0.3]
+    
+    return HybridSearchConfig(
+        ranker_type=ranker_type,
+        ranker_params={"weights": weights} if ranker_type == "weighted" else {"k": 60}
+    )

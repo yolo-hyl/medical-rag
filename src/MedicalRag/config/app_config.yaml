@@ -1,79 +1,107 @@
-# 完整应用配置示例
 milvus:
   uri: "http://localhost:19530"
   token: null
-  collection_name: "medical_knowledge2"
+  collection_name: "medical_hybrid_knowledge"
   drop_old: false
   auto_id: true
 
 embedding:
+  # 传统单一嵌入配置（向后兼容）
   dense:
     provider: "ollama"
-    model: "bge-m3:latest" 
+    model: "bge-m3:latest"
     base_url: "http://localhost:11434"
-    api_key: null
-    proxy: null
     dimension: 1024
   sparse:
-    manager: "self"  # self 或 milvus
-    vocab_path: "vocab.pkl.gz"
-    domain_model: "medicine"
-    k1: 1.5
-    b: 0.75
-    workers: 8
-    chunksize: 64
+    manager: "milvus"  # 使用Milvus内置BM25
+    
+  # 新的多向量配置
+  multi_vector:
+    enabled: true
+    
+    # 问题向量字段配置
+    question_vector:
+      name: "vec_question"
+      embedding_config:
+        provider: "ollama"
+        model: "bge-m3:latest"  # 专门用于问题嵌入
+        base_url: "http://localhost:11434"
+        dimension: 1024
+      index_params:
+        metric_type: "COSINE"
+        index_type: "HNSW"
+      
+    # 文本向量字段配置  
+    text_vector:
+      name: "vec_text"
+      embedding_config:
+        provider: "ollama" 
+        model: "bge-m3:latest"  # 可以使用不同模型处理长文本
+        base_url: "http://localhost:11434"
+        dimension: 1024
+      index_params:
+        metric_type: "IP"
+        index_type: "HNSW"
+    
+    # BM25稀疏向量配置
+    sparse_vector:
+      name: "sparse"
+      use_builtin_bm25: true
+      analyzer_params:
+        type: "standard"  # 可选: standard, keyword, chinese等
+        
+    # 重排配置
+    reranker:
+      type: "weighted"  # weighted 或 rrf
+      params:
+        weights: [0.4, 0.3, 0.3]  # [question, text, sparse]
 
 llm:
   provider: "ollama"
   model: "qwen3:32b"
   base_url: "http://localhost:11434"
-  api_key: null
-  proxy: null
   temperature: 0.1
-  max_tokens: null
 
 data:
-  path: "/home/weihua/medical-rag/raw_data/raw/train/sample/qa_50000.jsonl"
-  format: "jsonl"
+  path: "/home/weihua/medical-rag/raw_data/raw/train/qa_train_datasets.jsonl"
+  format: "json"
   question_field: "question"
   answer_field: "answer"
-  id_field: null
-  source_field: null
-  default_source: "unknown"
-  batch_size: 100
+  batch_size: 50
 
 search:
   top_k: 10
-  score_threshold: null
-  rrf_k: 100
-  output_fields: ["question", "answer", "source"]
-  filters: null
-
-# 新增配置部分
-ingestion:
-  batch_size: 100
-  max_workers: 4
-  max_retries: 3
-  build_vocab_if_needed: true
-  clean_text: true
-  remove_duplicates: true
-
-annotation:
-  max_concurrent: 3
-  batch_size: 10
-  model_backend: "ollama"
-  model_base_url: "http://localhost:11434" 
-  model_name: "qwen3:32b"
-  departments_enabled: true
-  categories_enabled: true
   
+  # 混合搜索配置
+  hybrid_search:
+    enabled: true
+    field_weights:
+      vec_question: 0.4
+      vec_text: 0.3
+      sparse: 0.3
+    ranker_type: "weighted"
+    ranker_params:
+      weights: [0.4, 0.3, 0.3]
+    final_top_k: 10
+
 rag:
   mode: "basic"
   retrieval:
     top_k: 10
-    dense_weight: 0.5
-    sparse_weight: 0.5
-  generation:
-    temperature: 0.1
-    include_sources: true
-    max_sources: 3
+    hybrid_mode: true
+    use_question_vector: true
+    use_text_vector: true  
+    use_sparse_vector: true
+    
+    # 动态权重调整
+    adaptive_weights: true
+    query_type_weights:
+      symptom: [0.5, 0.3, 0.2]      # 症状查询重视问题匹配
+      treatment: [0.3, 0.4, 0.3]    # 治疗查询重视内容匹配
+      prevention: [0.3, 0.4, 0.3]   # 预防查询重视内容匹配
+      default: [0.4, 0.3, 0.3]
+
+ingestion:
+  batch_size: 50
+  max_workers: 4
+  build_vocab_if_needed: false  # 使用内置BM25，不需要构建词表
