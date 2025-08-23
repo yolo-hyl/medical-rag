@@ -1,332 +1,325 @@
-# Medical RAG 医疗问答智能体
+# Medical RAG v2 使用指南
 
-基于 Milvus + LangChain 搭建的医疗问答智能体，采用RAG技术，提供准确和安全的医疗建议。
+基于 LangChain-Milvus 的简化医疗RAG系统，去除冗余，专注核心功能。
 
-## 主要特性
+## 🏗️ 项目架构
 
-### 自动化构建高质量数据
-- **自动化标注流水线**：支持HTTP、本地GPU推理，可配置推理过程参数，加速标注流程
-- **自动化管理词表**：采用多线程+领域分词器，自动化构建和管理词表，便于后续入库，增加查询准确性
-
-### 混合检索架构
-- **稠密向量检索**：支持 Ollama、OpenAI、HuggingFace 等嵌入模型，加速http嵌入以及使用本地批量嵌入
-- **稀疏向量检索**：本项目可自动管理词表，使用了基于医疗领域分词优化的 BM25 算法
-- **混合重排**：RRF 或加权融合多路检索结果
-
-### 医疗领域优化
-- **专业分类体系**：6大科室分类 + 8大问题类别
-- **智能标注**：支持多种LLM后端的自动数据标注
-- **医疗分词**：使用 pkuseg 医疗领域分词模型
-
-### 高性能数据库设计
-- **向量数据库**：基于 Milvus v2.6+ 高性能向量检索
-- **并发处理**：支持批量嵌入和并发查询
-- **灵活配置**：YAML 配置文件支持多环境部署，查询数据只需要编写yaml文件即可
-
-### 高效率接口设计
-- **封装Milvus高频接口**：便于工具调用，以及yaml文件的查询实现
-- **prompt管理**：可配置多版本prompt，只需要对应修改yaml中的配置即可
+```
+medical-rag-v2/
+├── src/medical_rag/
+│   ├── config/              # 配置系统
+│   │   ├── models.py        # 配置数据模型
+│   │   └── loader.py        # 配置加载器
+│   ├── core/                # 核心组件
+│   │   └── components.py    # LLM/嵌入/向量存储创建
+│   ├── knowledge/           # 知识库功能
+│   │   ├── bm25.py         # BM25处理（保留原实现）
+│   │   ├── ingestion.py    # 数据入库
+│   │   └── annotation.py   # 自动标注
+│   ├── rag/                # RAG功能
+│   │   └── basic_rag.py    # 基础RAG和智能体RAG
+│   └── prompts/            # Prompt管理
+│       └── templates.py    # Prompt模板
+├── config/                 # 配置文件
+└── scripts/               # 使用脚本
+```
 
 ## 🚀 快速开始
 
-### 环境准备
+### 1. 环境准备
 
 ```bash
-# 1. 克隆项目
-git clone https://github.com/yolo-hyl/medical-rag
-cd medical-rag/src
+# 安装依赖
+pip install langchain langchain-milvus langchain-openai langchain-ollama
+pip install langchain-community datasets pymilvus pkuseg
 
-# 2. 安装项目
-pip install -e .
+# 启动 Milvus
+docker run -p 19530:19530 milvusdb/milvus:latest
 
-# 3. 启动 Milvus (使用 Docker)
-cd Milvus
-bash standalone_embed.sh start
-
-# 4. 启动 Ollama (可选)
+# 启动 Ollama (如果使用Ollama)
 ollama serve
-ollama pull bge-m3:latest  # 嵌入模型（可自定义）
-ollama pull qwen3:32b        # 标注模型（可自定义）
+ollama pull bge-m3:latest
+ollama pull qwen3:32b
 ```
 
-### 基础配置
+### 2. 配置设置
 
-编辑 `src/MedicalRag/config/default.yaml` 配置文件，部分示例如下，详见配置文件：
+编辑 `config/app_config.yaml`:
 
 ```yaml
 milvus:
-  client:
-    uri: "http://localhost:19530"
-    token: "root:Milvus"
-  collection:
-    name: "qa_knowledge"
+  uri: "http://localhost:19530"
+  collection_name: "medical_knowledge"
 
 embedding:
   dense:
-    provider: ollama
+    provider: "ollama"  # 或 "openai"
     model: "bge-m3:latest"
     base_url: "http://localhost:11434"
+  sparse:
+    manager: "self"  # 或 "milvus" 使用内置BM25
+
+llm:
+  provider: "ollama"  # 或 "openai"  
+  model: "qwen3:32b"
+  base_url: "http://localhost:11434"
+
+data:
+  path: "/path/to/your/data.jsonl"
+  question_field: "question"
+  answer_field: "answer"
 ```
 
-## 使用流程
+## 📚 核心功能使用
 
-### 数据标注
-
-对原始QA数据进行智能标注，自动分类科室和问题类别：
+### 功能1: 构建BM25词表（自管理BM25）
 
 ```bash
-# 配置标注参数
-vim src/MedicalRag/config/data/annotator.yaml
-
-# 运行标注
-python scripts/annotation.py src/MedicalRag/config/data/annotator.yaml
+python scripts/01_build_vocab.py
 ```
 
-**标注功能**：
-- 支持医疗科室分类（内科、外科、妇产儿科等6大类）
-- 支持问题类别分类（诊断症状、治疗方案等8大类）
-- 多LLM后端支持（Ollama、vLLM、OpenAI等）
-- 断点续标和批量处理
+**何时使用**: 当配置中 `sparse.manager: "self"` 时需要
 
-### 构建词表
-
-为BM25稀疏向量构建医疗领域词汇表：
+### 功能2: 数据入库
 
 ```bash
-python scripts/build_vocab.py
+python scripts/02_ingest_data.py
 ```
 
-**词表特性**：
-- 基于医疗领域语料训练
-- 支持并行分词处理
-- 生成 `vocab.pkl.gz` 词表文件，可指定目录或由项目进行自动管理
+**功能说明**:
+- 自动加载数据集（支持JSON/JSONL/Parquet）
+- 根据配置选择BM25方案（自管理 vs Milvus内置）
+- 批量向量化和入库
+- 使用 langchain-milvus 的标准接口
 
-### 创建Milvus集合
-
-在Milvus中创建向量数据库集合：
-
-#### 编辑配置文件
-```code yaml
-milvus:
-  client:
-  # 基础配置信息
-  collection：
-  # 集合配置信息
-  schema:
-  # 字段信息
-  index:
-  # 索引
-  search:
-  # 基础查询定义
-  write:
-  # 插入配置设定
-embedding:
-  dense:
-  # 密集向量生成定义
-  sparse_bm25:
-  # 稀疏向量定义
-```
-#### 自动化创建
+### 功能3: 自动标注
 
 ```bash
-# 创建集合
-python scripts/create_collection.py -c src/MedicalRag/config/default.yaml
-
-# 强制重建集合
-python scripts/create_collection.py --force-recreate
-
-# 测试连接是否可用
-python scripts/create_collection.py --connection-only
+python scripts/03_annotate_data.py \
+  --input data/raw_qa.jsonl \
+  --output data/annotated_qa.json \
+  --question-field question \
+  --answer-field answer
 ```
 
-**集合特性**：
-- 支持稠密向量 + 稀疏向量混合存储
-- 自动创建 HNSW 和倒排索引
-- 支持分区键优化查询性能
+**功能说明**:
+- 医疗QA自动分类标注
+- 6大科室 + 8大问题类别
+- 基于LangChain的LLM调用
+- 支持批量处理和错误重试
 
-### 数据入库
-
-将处理好的数据导入向量数据库：
+### 功能4: 基础RAG
 
 ```bash
-python scripts/insert_data_to_collection.py
+python scripts/04_basic_rag.py
 ```
 
-**入库流程**：
-- 自动向量化（稠密 + 稀疏）
-- 批量插入优化
-- 支持增量更新
+**功能说明**:
+- 使用 langchain-milvus 的混合检索
+- 基于检索结果生成回答
+- 硬编码的RAG流程
+- 支持过滤条件
 
-### 查询检索
+**交互示例**:
+```
+请输入您的问题: 高血压的症状有哪些？
 
-执行混合检索查询：
+回答: 高血压的主要症状包括头痛、头晕、心悸...
 
-#### 使用默认配置查询
-在定义default配置时，会定义search，这里可以配置查询规则
+参考资料 (3 条):
+1. medical_source
+   高血压是一种常见的心血管疾病...
+```
 
-#### 使用自定义配置查询
-也可以使用自己配置的yaml或者字典进行查询，具体可以查看config/search下的yaml文件
+### 功能5: 智能体RAG
 
-#### 开始使用
 ```bash
-# 使用搜索配置
-python scripts/search_pipline.py --search-config src/MedicalRag/config/search/search_answer.yaml
-
-# 测试配置字典自定义创建查询
-python scripts/search_pipline.py --test-config-dict
+python scripts/05_agent_rag.py
 ```
 
-**检索特性**：
-- 单次查询和批量查询
-- 支持过滤条件和分页
-- 动态调整检索通道权重
+**功能说明**:
+- 自主确定检索参数和内容
+- 知识库检索 + 网络搜索结合
+- 多源信息综合
+- 简单工具调用（计算器等）
 
-## 核心工具类
+**智能特性**:
+1. **自主检索**: 分析问题自动确定搜索策略
+2. **多源信息**: 知识库为主，网络搜索补充  
+3. **信息综合**: LLM综合多个信息源
+4. **工具调用**: 支持计算器、网络搜索等工具
 
-### RAG搜索工具
+## 🔧 配置选项详解
 
-```python
-from MedicalRag.tools.rag_search_tool import RAGSearchTool
+### Milvus内置BM25 vs 自管理BM25
 
-# 从配置文件创建
-tool = RAGSearchTool("config/search.yaml")
-
-if tool.is_ready():
-    # 单个查询
-    results = tool.search("梅毒的症状有哪些？")
-    
-    # 批量查询
-    results = tool.search(["梅毒", "高血压"])
-    
-    # 带过滤条件
-    results = tool.search("梅毒", filters={"dept_pk": "3"})
-```
-
-## 项目结构
-
-```
-medical-rag/
-├── src/MedicalRag/           # 核心源码
-│   ├── core/                 # 核心组件
-│   │   ├── llm/             # LLM客户端
-│   │   ├── vectorstore/     # Milvus操作
-│   │   └── embeddings/      # 嵌入模型
-│   ├── data/                # 数据处理
-│   │   ├── loader/          # 数据加载器
-│   │   ├── processor/       # 数据处理器
-│   │   └── annotator/       # 数据标注器
-│   ├── pipeline/            # 流水线
-│   │   ├── ingestion/       # 数据入库
-│   │   └── query/           # 查询检索
-│   ├── config/              # 配置文件
-│   └── tools/               # 工具类
-├── scripts/                 # 主要功能脚本
-├── Milvus/                  # Milvus部署脚本
-```
-
-## 配置说明
-
-### 主要配置文件
-
-- `src/MedicalRag/config/default.yaml` - 主配置文件
-- `src/MedicalRag/config/search/search_answer.yaml` - 搜索专用配置
-- `src/MedicalRag/config/data/annotator.yaml` - 标注配置
-
-### 关键配置项
-
+#### 使用Milvus内置BM25（推荐）
 ```yaml
-# Milvus配置
-milvus:
-  client:
-    uri: "http://localhost:19530"
-  collection:
-    name: "qa_knowledge"
-
-# 嵌入模型配置
 embedding:
-  dense:
-    provider: ollama
-    model: "bge-m3:latest"
-  sparse_bm25:
+  sparse:
+    manager: "milvus"  # Milvus 2.5+支持
+```
+
+**优势**:
+- 无需构建词表
+- 自动处理BM25计算
+- 更简洁的架构
+
+#### 使用自管理BM25（保留原实现）
+```yaml
+embedding:
+  sparse:
+    manager: "self"
     vocab_path: "vocab.pkl.gz"
-
-# 搜索通道配置
-search:
-  channels:
-    - name: sparse_q          # 查询稀疏向量
-      weight: 0.3
-    - name: sparse_doc        # 文档稀疏向量  
-      weight: 0.4
-    - name: dense_doc         # 文档稠密向量
-      weight: 0.3
+    domain_model: "medicine"  # 医疗领域分词
 ```
 
-## 高级功能
+**优势**:
+- 保持原项目的高性能实现
+- 自定义BM25参数
+- 不受Milvus版本限制
 
-### 自定义LLM后端
+### LLM提供商配置
 
-支持多种LLM后端进行数据标注：
-
-```python
-# Ollama
-llm_config = {
-    "type": "ollama",
-    "model_name": "qwen3:32b",
-    "ollama": {"base_url": "http://localhost:11434"}
-}
-
-# vLLM
-llm_config = {
-    "type": "vllm", 
-    "model_name": "Qwen/Qwen2-7B-Instruct",
-    "vllm": {"base_url": "http://localhost:8000"}
-}
-
-# OpenAI
-llm_config = {
-    "type": "openai",
-    "openai": {"api_key": "your-key"}
-}
+#### Ollama（内网部署）
+```yaml
+llm:
+  provider: "ollama"
+  model: "qwen3:32b"
+  base_url: "http://localhost:11434"
 ```
 
-### 动态检索配置
+#### OpenAI（支持代理）
+```yaml
+llm:
+  provider: "openai"  
+  model: "gpt-4o-mini"
+  api_key: "your-key"
+  base_url: "https://api.openai.com/v1"
+  proxy: "http://localhost:10809"  # 可选代理
+```
 
-运行时动态调整检索策略：
+## 🛠️ 高级用法
+
+### 程序化使用
 
 ```python
-# 更新通道权重
-tool.update_search_config({
-    "channels": [
-        {"name": "sparse_q", "weight": 0.5},
-        {"name": "dense_doc", "weight": 0.5}
-    ]
+from medical_rag.config.loader import load_config_from_file
+from medical_rag.rag.basic_rag import create_basic_rag, create_agent_rag
+
+# 加载配置
+config = load_config_from_file("config/app_config.yaml")
+
+# 基础RAG
+basic_rag = create_basic_rag(config)
+answer = basic_rag.answer("糖尿病的治疗方法？")
+
+# 智能体RAG
+agent_rag = create_agent_rag(config, enable_web_search=True)
+detailed_result = agent_rag.answer("最新的癌症治疗进展", return_details=True)
+```
+
+### 自定义Prompt
+
+```python
+from medical_rag.prompts.templates import register_prompt_template
+
+# 注册自定义模板
+register_prompt_template("custom_medical", {
+    "system": "你是专业医生...",
+    "user": "患者问题: {input}\n请提供专业建议"
 })
 ```
 
-## 性能优化
+### 混合检索配置
 
-- **并发处理**：支持批量嵌入和并发查询
-- **索引优化**：HNSW索引 + 稀疏倒排索引
-- **缓存机制**：嵌入结果缓存和词表缓存
-- **分区策略**：按科室分区提升查询性能
+```python
+from medical_rag.core.components import KnowledgeBase
 
-## 贡献指南
+kb = KnowledgeBase(config)
 
-欢迎提交Issue和Pull Request来改进项目！
+# 带过滤的检索
+results = kb.search(
+    query="高血压治疗", 
+    k=10,
+    filter={"source": "权威指南"}
+)
 
-## 许可证
+# 转换为检索器
+retriever = kb.as_retriever(search_kwargs={"k": 5})
+```
 
-MIT License
+## 📊 性能对比
+
+| 特性 | 原项目 | 重构后 |
+|------|--------|--------|
+| 代码行数 | ~3000+ | ~1500 |
+| 配置复杂度 | 高 | 简化 |
+| Milvus操作 | 自实现 | langchain-milvus |
+| BM25支持 | 仅自管理 | 双重支持 |
+| LLM集成 | 自实现 | langchain标准 |
+| RAG链 | 手工组装 | langchain LCEL |
+
+## 🔍 故障排除
+
+### 常见问题
+
+1. **Milvus连接失败**
+```bash
+# 检查Milvus服务
+docker ps | grep milvus
+curl http://localhost:19530/health
+```
+
+2. **词表构建失败**
+```python
+# 检查pkuseg医疗模型
+import pkuseg
+seg = pkuseg.pkuseg(model_name="medicine")
+```
+
+3. **向量维度不匹配**
+```yaml
+# 确保配置的维度与模型一致
+embedding:
+  dense:
+    dimension: 1024  # 需要与实际嵌入模型维度匹配
+```
+
+### 性能调优
+
+```yaml
+# 批量大小调优
+data:
+  batch_size: 50  # 根据内存调整
+
+# 检索参数调优  
+search:
+  top_k: 10      # 检索数量
+  rrf_k: 100     # RRF重排参数
+```
+
+## 📖 与原项目对比
+
+### 保留的优势
+✅ 高性能BM25实现（医疗分词 + 停用词过滤）  
+✅ Prompt管理方式  
+✅ 医疗领域分类体系  
+✅ 自动标注功能  
+
+### 重构的改进
+🚀 使用langchain-milvus替代自实现  
+🚀 支持Milvus内置BM25  
+🚀 简化配置系统  
+🚀 使用langchain标准RAG组件  
+🚀 代码量减少50%+  
+
+### 新增功能
+🆕 智能体RAG（自主检索+多源信息）  
+🆕 双重BM25支持（自管理+Milvus内置）  
+🆕 更灵活的LLM配置（支持代理）  
+🆕 标准langchain接口兼容性  
 
 ---
 
-## 常见问题
-
-**Q: 如何切换嵌入模型？**
-A: 修改配置文件中的 `embedding.dense.provider` 和 `model` 字段。
-
-**Q: 如何自定义医疗分类体系？**  
-A: 修改 `src/MedicalRag/config/prompts.py` 中的分类定义。
-
-**Q: 检索结果不理想怎么办？**
-A: 可以调整 `search.channels` 中各通道的权重，或重新训练词表。
+这个重构版本在保持原项目核心优势的同时，充分利用了langchain生态的成熟组件，大大简化了架构和维护成本。
