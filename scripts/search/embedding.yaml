@@ -1,0 +1,11 @@
+embedding:
+  summary_dense:
+    provider: "ollama"
+    model: "bge-m3:latest"
+    base_url: "http://localhost:11434"
+    dimension: 1024
+  text_dense:
+    provider: "ollama"
+    model: "bge-m3:latest"
+    base_url: "http://localhost:11434"
+    dimension: 1024

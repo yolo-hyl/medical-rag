@@ -12,7 +12,7 @@ from tqdm import tqdm
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..config.models import AppConfig, LLMConfig
-from ..core.components import create_llm_client  
+from ..core.utils import create_llm_client  
 from ..prompts.templates import get_prompt_template, parse_annotation_result
 
 logger = logging.getLogger(__name__)

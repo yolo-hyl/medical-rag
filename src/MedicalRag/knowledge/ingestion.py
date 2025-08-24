@@ -11,7 +11,7 @@ from tqdm import tqdm
 from langchain_core.documents import Document
 
 from ..config.models import AppConfig, DataConfig
-from ..core.components import KnowledgeBase
+from ..core.utils import KnowledgeBase
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 milvus:
   uri: "http://localhost:19530"
   token: null
-  collection_name: "medical_hybrid_knowledge"
+  collection_name: "medical_knowledge"
   drop_old: false
   auto_id: false
 
@@ -35,10 +35,18 @@ data:
 
 search:
   top_k: 10
-  rrf_k: 10
-  filters: ""
-  ranker_type: "weighted"
-  weights: [0.4, 0.3, 0.3]
+  
+  # 混合搜索配置
+  hybrid_search:
+    enabled: true
+    field_weights:
+      vec_question: 0.4
+      vec_text: 0.3
+      sparse: 0.3
+    ranker_type: "weighted"
+    ranker_params:
+      weights: [0.4, 0.3, 0.3]
+    final_top_k: 10
 
 rag:
   mode: "basic"

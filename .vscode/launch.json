@@ -19,7 +19,7 @@
             "name": "02_ingest_data",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/02_ingest_data.py",
+            "program": "${workspaceFolder}/scripts/ingest/02_ingest_data.py",
             "console": "integratedTerminal"
         },
         {
@@ -44,10 +44,10 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "06_simple_search",
+            "name": "06_search",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/06_simple_search.py",
+            "program": "${workspaceFolder}/scripts/search/search.py",
             "console": "integratedTerminal"
         },
         {

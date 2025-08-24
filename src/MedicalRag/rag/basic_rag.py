@@ -1,4 +1,3 @@
-# src/medical_rag/rag/basic_rag.py
 """
 RAG功能模块（使用langchain标准组件）
 """
@@ -12,7 +11,7 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 
 from ..config.models import AppConfig
-from ..core.components import KnowledgeBase
+from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
 from ..prompts.templates import get_prompt_template
 
 logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ class BasicRAG:
     
     def __init__(self, config: AppConfig):
         self.config = config
-        self.knowledge_base = KnowledgeBase(config)
+        self.knowledge_base = MedicalHybridKnowledgeBase(config)
         self.retriever = self.knowledge_base.as_retriever()
         
         # 获取提示模板
