@@ -8,7 +8,7 @@ from MedicalRag.core.advanced_components import (
     MedicalHybridKnowledgeBase,
     AdvancedIngestionPipeline
 )
-
+import traceback
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -18,36 +18,26 @@ def load_sample_data():
         {
             "question": "高血压的主要症状有哪些？",
             "answer": "高血压的主要症状包括：1.头痛，多位于后脑；2.眩晕；3.心悸胸闷；4.肢体麻木。早期可能无明显症状。",
-            "department": "心血管内科",
-            "category": "症状咨询",
             "source": "医疗指南"
         },
         {
             "question": "糖尿病如何预防？",
             "answer": "糖尿病预防措施：1.合理膳食，控制总热量；2.适量运动，每周至少150分钟；3.控制体重；4.定期体检；5.戒烟限酒。",
-            "department": "内分泌科", 
-            "category": "预防保健",
             "source": "预防医学"
         },
         {
             "question": "冠心病的治疗方法？",
             "answer": "冠心病治疗包括：1.药物治疗：抗血小板、降脂药等；2.介入治疗：支架植入术；3.外科治疗：搭桥手术；4.生活方式改变。",
-            "department": "心血管内科",
-            "category": "治疗方案", 
             "source": "临床指南"
         },
         {
             "question": "感冒发烧怎么办？",
             "answer": "感冒发烧处理：1.多休息多喝水；2.物理降温；3.体温超过38.5°C可服用退烧药；4.症状严重时及时就医。",
-            "department": "呼吸内科",
-            "category": "治疗方案",
             "source": "常见疾病"
         },
         {
             "question": "胃痛的常见原因？",
             "answer": "胃痛常见原因：1.胃炎、胃溃疡；2.胃食管反流；3.功能性消化不良；4.幽门螺杆菌感染；5.药物刺激等。",
-            "department": "消化内科",
-            "category": "疾病诊断",
             "source": "诊断手册"
         }
     ]
@@ -63,7 +53,6 @@ def main():
         config = load_config_from_file("/home/weihua/medical-rag/src/MedicalRag/config/app_config.yaml")
         print(f"✅ 配置加载成功")
         print(f"   集合名称: {config.milvus.collection_name}")
-        print(f"   多向量模式: {config.embedding.multi_vector.enabled}")
         
         # 2. 加载示例数据
         sample_data = load_sample_data()
@@ -82,7 +71,7 @@ def main():
         
         # 4. 创建知识库实例
         kb = MedicalHybridKnowledgeBase(config)
-        kb.initialize_collection(drop_old=False)  # 集合已存在
+        kb.initialize_collection(drop_old=True)  # 集合已存在
         
         collection_info = kb.get_collection_info()
         print(f"✅ 知识库初始化完成")
@@ -155,7 +144,7 @@ def main():
             k=5,
             ranker_type="weighted",
             ranker_params={"weights": [0.4, 0.3, 0.3]},
-            filters={"category": "症状咨询"}
+            filters="source == 'qa'"
         )
         
         print(f"过滤检索结果 (category='症状咨询'):")
@@ -170,7 +159,7 @@ def main():
             k=5,
             ranker_type="weighted", 
             ranker_params={"weights": [0.3, 0.4, 0.3]},
-            filters={"department": ["心血管内科", "内分泌科"]}
+            filters="source == 'qa'"
         )
         
         print(f"\n多部门过滤结果 (心血管内科或内分泌科):")
@@ -188,6 +177,7 @@ def main():
         
     except Exception as e:
         logger.error(f"演示运行失败: {e}")
+        print(traceback(e))
         raise
 
 if __name__ == "__main__":

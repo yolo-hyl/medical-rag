@@ -3,17 +3,20 @@ milvus:
   token: null
   collection_name: "medical_hybrid_knowledge"
   drop_old: false
-  auto_id: true
+  auto_id: false
 
 embedding:
   # 传统单一嵌入配置（向后兼容）
-  dense:
+  summary_dense:
     provider: "ollama"
     model: "bge-m3:latest"
     base_url: "http://localhost:11434"
     dimension: 1024
-  sparse:
-    manager: "milvus"  # 使用Milvus内置BM25
+  text_sparse:
+    provider: "ollama"
+    model: "bge-m3:latest"
+    base_url: "http://localhost:11434"
+    dimension: 1024
     
   # 新的多向量配置
   multi_vector:
@@ -65,8 +68,8 @@ llm:
 data:
   path: "/home/weihua/medical-rag/raw_data/raw/train/qa_train_datasets.jsonl"
   format: "json"
-  question_field: "question"
-  answer_field: "answer"
+  summary_field: "question"
+  document_field: "answer"
   batch_size: 50
 
 search:

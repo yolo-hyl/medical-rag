@@ -8,54 +8,54 @@ from pydantic import BaseModel, Field
 # =============================================================================
 # 多向量字段配置 (新增)
 # =============================================================================
-class VectorFieldConfig(BaseModel):
-    """单个向量字段配置"""
-    name: str
-    embedding_config: 'DenseConfig'
-    index_params: Optional[Dict[str, Any]] = None
-    search_params: Optional[Dict[str, Any]] = None
+# class VectorFieldConfig(BaseModel):
+#     """单个向量字段配置"""
+#     name: str
+#     embedding_config: 'DenseConfig'
+#     index_params: Optional[Dict[str, Any]] = None
+#     search_params: Optional[Dict[str, Any]] = None
 
-class MultiVectorConfig(BaseModel):
-    """多向量字段配置"""
-    enabled: bool = True
+# class MultiVectorConfig(BaseModel):
+#     """多向量字段配置"""
+#     enabled: bool = True
     
-    # 向量字段定义
-    question_vector: VectorFieldConfig = Field(
-        default_factory=lambda: VectorFieldConfig(
-            name="vec_question",
-            embedding_config=DenseConfig(
-                provider="ollama",
-                model="bge-m3:latest",
-                dimension=1024
-            )
-        )
-    )
+#     # 向量字段定义
+#     question_vector: VectorFieldConfig = Field(
+#         default_factory=lambda: VectorFieldConfig(
+#             name="vec_question",
+#             embedding_config=DenseConfig(
+#                 provider="ollama",
+#                 model="bge-m3:latest",
+#                 dimension=1024
+#             )
+#         )
+#     )
     
-    text_vector: VectorFieldConfig = Field(
-        default_factory=lambda: VectorFieldConfig(
-            name="vec_text", 
-            embedding_config=DenseConfig(
-                provider="ollama",
-                model="bge-m3:latest",
-                dimension=1024
-            )
-        )
-    )
+#     text_vector: VectorFieldConfig = Field(
+#         default_factory=lambda: VectorFieldConfig(
+#             name="vec_text", 
+#             embedding_config=DenseConfig(
+#                 provider="ollama",
+#                 model="bge-m3:latest",
+#                 dimension=1024
+#             )
+#         )
+#     )
     
-    # BM25稀疏向量配置
-    sparse_vector: Dict[str, Any] = Field(default_factory=lambda: {
-        "name": "sparse",
-        "use_builtin_bm25": True,  # 使用Milvus内置BM25
-        "analyzer_params": {}  # BM25分析器参数
-    })
+#     # BM25稀疏向量配置
+#     sparse_vector: Dict[str, Any] = Field(default_factory=lambda: {
+#         "name": "sparse",
+#         "use_builtin_bm25": True,  # 使用Milvus内置BM25
+#         "analyzer_params": {}  # BM25分析器参数
+#     })
     
-    # 重排配置
-    reranker: Dict[str, Any] = Field(default_factory=lambda: {
-        "type": "weighted",  # weighted 或 rrf
-        "params": {
-            "weights": [0.4, 0.3, 0.3]  # [question_vec, text_vec, sparse_vec]
-        }
-    })
+#     # 重排配置
+#     reranker: Dict[str, Any] = Field(default_factory=lambda: {
+#         "type": "weighted",  # weighted 或 rrf
+#         "params": {
+#             "weights": [0.4, 0.3, 0.3]  # [question_vec, text_vec, sparse_vec]
+#         }
+#     })
 
 
 # =============================================================================
@@ -95,13 +95,8 @@ class DenseConfig(BaseModel):
 
 # 更新嵌入配置，支持多向量
 class EmbeddingConfig(BaseModel):
-    """嵌入配置 - 更新版"""
-    # 原有的单一嵌入配置（向后兼容）
-    dense: DenseConfig
-    sparse: SparseConfig
-    
-    # 新增的多向量配置
-    multi_vector: MultiVectorConfig = Field(default_factory=MultiVectorConfig)
+    summary_dense: DenseConfig
+    text_sparse: DenseConfig
 
 # =============================================================================
 # LLM 配置
@@ -124,11 +119,18 @@ class DataConfig(BaseModel):
     path: Union[str, List[str]]
     format: Literal['json', 'jsonl', 'parquet'] = 'jsonl'
     # 字段映射
-    question_field: str = "question"
-    answer_field: str = "answer"
-    id_field: Optional[str] = None
+    summary_field: str = "question"
+    document_field: str = "answer"
     source_field: Optional[str] = None
-    default_source: str = "qa"
+    source_name_field: Optional[str] = None
+    ### 文档独有 ###
+    lt_doc_id_field: Optional[str] = None
+    chunk_id_field: Optional[int] = None
+    ### 文档独有 ###
+    default_source: Optional[str] = "qa"  # 只支持QA和文献literature
+    default_source_name: Optional[str] = "huatuo"  # QA数据源名称
+    default_lt_doc_id: Optional[str] = ""
+    default_chunk_id: Optional[int] = -1
     batch_size: int = 100
 
 # =============================================================================
@@ -364,38 +366,38 @@ class AppConfig(BaseModel):
     
     
     
-def create_multi_vector_config(
-    question_model: str = "bge-m3:latest",
-    text_model: str = "text-embedding-3-large",
-    provider: str = "ollama",
-    weights: List[float] = None
-) -> MultiVectorConfig:
-    """创建多向量配置的便捷函数"""
-    if weights is None:
-        weights = [0.4, 0.3, 0.3]
+# def create_multi_vector_config(
+#     question_model: str = "bge-m3:latest",
+#     text_model: str = "text-embedding-3-large",
+#     provider: str = "ollama",
+#     weights: List[float] = None
+# ) -> MultiVectorConfig:
+#     """创建多向量配置的便捷函数"""
+#     if weights is None:
+#         weights = [0.4, 0.3, 0.3]
     
-    return MultiVectorConfig(
-        question_vector=VectorFieldConfig(
-            name="vec_question",
-            embedding_config=DenseConfig(
-                provider=provider,
-                model=question_model,
-                dimension=1024
-            )
-        ),
-        text_vector=VectorFieldConfig(
-            name="vec_text",
-            embedding_config=DenseConfig(
-                provider=provider if provider != "openai" else "openai",
-                model=text_model,
-                dimension=1024 if provider != "openai" else 3072
-            )
-        ),
-        reranker={
-            "type": "weighted",
-            "params": {"weights": weights}
-        }
-    )
+#     return MultiVectorConfig(
+#         question_vector=VectorFieldConfig(
+#             name="vec_question",
+#             embedding_config=DenseConfig(
+#                 provider=provider,
+#                 model=question_model,
+#                 dimension=1024
+#             )
+#         ),
+#         text_vector=VectorFieldConfig(
+#             name="vec_text",
+#             embedding_config=DenseConfig(
+#                 provider=provider if provider != "openai" else "openai",
+#                 model=text_model,
+#                 dimension=1024 if provider != "openai" else 3072
+#             )
+#         ),
+#         reranker={
+#             "type": "weighted",
+#             "params": {"weights": weights}
+#         }
+#     )
 
 def create_hybrid_search_config(
     ranker_type: str = "weighted",

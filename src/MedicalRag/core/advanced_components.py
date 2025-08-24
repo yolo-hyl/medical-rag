@@ -13,11 +13,43 @@ from langchain_core.vectorstores import VectorStore
 from langchain_milvus import Milvus, BM25BuiltInFunction
 from langchain_openai import OpenAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
-
+from tqdm import tqdm
 from ..config.models import AppConfig, EmbeddingConfig, DenseConfig
 from .components import create_embedding_client
+import hashlib
+from pymilvus import MilvusClient, DataType, Collection, connections, FunctionType, Function
+from functools import lru_cache
+from pathlib import Path
+
+get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache()
+def get_stopwords(source="all"):
+    """
+    Params:
+        langs: string，支持的语言，目前仅支持中文(zh)
+        source: string, 停用词来源，目前支持
+          - baidu: 百度停用词表
+          - hit: 哈工大停用词表
+          - ict: 中科院计算所停用词表
+          - scu: 四川大学机器智能实验室停用词库
+          - cn: 广为流传未知来源的中文停用词表
+          - marimo: Marimo multi-lingual stopwords collection 内的中文停用词
+          - iso: Stopwords ISO 内的中文停用词
+          - all: 上述所有停用词并集
+          - en: 英文
+    Return:
+        a set, 停用词表集合
+    """
+
+    supported_source = ["cn", "baidu", "hit", "scu", "marimo", "ict", "iso", "all", 'en']
+    if source not in supported_source:
+        raise NotImplementedError("请求了未知来源，请使用`help(stopwords)`查看支持的来源")
+    return set(get_resolve_path(f"./stopwords/stopwords.zh.{source}.txt").read_text(encoding='utf8').strip().split())
+
 
 class MedicalHybridKnowledgeBase:
     """医疗混合知识库 - 支持多向量字段检索"""
@@ -28,60 +60,109 @@ class MedicalHybridKnowledgeBase:
         self.embedding_config = config.embedding
         
         # 创建多个嵌入模型实例
-        self.question_embedding = self._create_question_embedding()
+        self.summary_embedding = self._create_summary_embedding()
         self.text_embedding = self._create_text_embedding()
         
         # 向量存储实例
         self.vectorstore: Optional[Milvus] = None
         
-    def _create_question_embedding(self) -> Embeddings:
-        """创建问题嵌入模型（用于vec_question字段）"""
-        # 复用配置，但可以针对question优化
-        return create_embedding_client(self.embedding_config.dense)
+        # 停用词
+        self.stopwords = get_stopwords(source="all")
+        
+    def _create_summary_embedding(self) -> Embeddings:
+        """创建问题嵌入模型（用于vec_字段）"""
+        return create_embedding_client(self.embedding_config.summary_dense)
     
     def _create_text_embedding(self) -> Embeddings:
         """创建文本嵌入模型（用于vec_text字段）"""
-        # 可以使用不同的模型或参数
-        config = self.embedding_config.dense
-        
-        # 示例：可以使用不同的模型专门处理长文本
-        if config.provider == "openai":
-            return OpenAIEmbeddings(
-                model="text-embedding-3-large",  # 使用更大的模型处理长文本
-                api_key=config.api_key,
-                base_url=config.base_url
-            )
-        elif config.provider == "ollama":
-            return OllamaEmbeddings(
-                model=config.model,
-                base_url=config.base_url
-            )
-        
-        return create_embedding_client(config)
+        return create_embedding_client(self.embedding_config.text_sparse)
     
+    def _create_collection(self, drop_old: bool = False):
+        client = MilvusClient(uri=self.milvus_config.uri, token=self.milvus_config.token)
+        assert self.config.embedding.summary_dense.dimension == self.config.embedding.summary_dense.dimension, "多向量单行存储时，两个嵌入模型嵌入向量维度必须相同"
+        dim = self.config.embedding.summary_dense.dimension
+        if drop_old:
+            if client.has_collection(collection_name=self.milvus_config.collection_name):
+                client.drop_collection(collection_name=self.milvus_config.collection_name)
+            schema = MilvusClient.create_schema(
+                auto_id=self.milvus_config.auto_id,
+                enable_dynamic_field=True,
+            )
+            if self.milvus_config.auto_id:
+                schema.add_field(field_name="pk",datatype=DataType.INT64, is_primary=True)
+            else:
+                schema.add_field(field_name="pk",datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
+            schema.add_field(
+                field_name="text",
+                datatype=DataType.VARCHAR,
+                max_length=65535,
+                enable_analyzer=True
+            )
+            schema.add_field(
+                field_name="summary",
+                datatype=DataType.VARCHAR,
+                max_length=65535
+            )
+            schema.add_field(
+                field_name="document",
+                datatype=DataType.VARCHAR,
+                max_length=65535
+            )
+            schema.add_field(
+                field_name="vec_summary",
+                datatype=DataType.FLOAT_VECTOR,
+                dim=dim
+            )
+            schema.add_field(
+                field_name="vec_text",
+                datatype=DataType.FLOAT_VECTOR,
+                dim=dim
+            )
+            schema.add_field(
+                field_name="sparse",
+                datatype=DataType.SPARSE_FLOAT_VECTOR
+            )
+            bm25_fn = Function(
+                name="bm25_text_to_sparse",
+                function_type=FunctionType.BM25,
+                input_field_names=["text"],
+                output_field_names=["sparse"],
+            )
+            schema.add_function(bm25_fn)
+            client.create_collection(collection_name=self.milvus_config.collection_name, schema=schema)
+        else:
+            return  # 如果不删除老集合，那就直接返回，不要创建
+        
     def initialize_collection(self, drop_old: bool = False) -> None:
         """初始化集合，使用多向量字段"""
+        self._create_collection(drop_old)
         try:
             # 定义BM25内置函数
-            bm25_function = BM25BuiltInFunction(
-                output_field_names="sparse"  # 稀疏向量字段名
+            bm25 = BM25BuiltInFunction(
+                input_field_names="text",
+                output_field_names="sparse",
+                analyzer_params={
+                    "tokenizer": "defalut",
+                    "filter": [{"type": "stop", "stop_words": self.stopwords}],
+                },
             )
             
             # 创建向量存储，支持多个向量字段
             self.vectorstore = Milvus(
                 embedding_function=[
-                    self.question_embedding,  # vec_question字段
-                    self.text_embedding       # vec_text字段
-                ],
-                builtin_function=bm25_function,
-                vector_field=["vec_question", "vec_text", "sparse"],
+                    self.summary_embedding, 
+                    self.text_embedding
+                ],      # 只有 dense 在这里；BM25 走 builtin_function
+                builtin_function=bm25,                  # <== 通过 builtin_function 开 BM25
+                vector_field=["vec_summary", "vec_text", "sparse"],  # 顺序要对齐：[q_emb, d_emb, bm25]
+                text_field="text",                      # BM25 的输入字段
                 collection_name=self.milvus_config.collection_name,
                 connection_args={
                     "uri": self.milvus_config.uri,
                     "token": self.milvus_config.token
                 },
                 consistency_level="Strong",
-                drop_old=drop_old,
+                drop_old=False,
                 auto_id=self.milvus_config.auto_id
             )
             
@@ -95,36 +176,27 @@ class MedicalHybridKnowledgeBase:
         """添加文档，自动处理多向量字段"""
         if not self.vectorstore:
             raise ValueError("请先初始化集合")
-        
-        # 预处理文档，为不同字段准备内容
-        processed_docs = []
-        
+        num = 0
         for doc in documents:
             # 提取问题和答案
-            question = doc.metadata.get("question", "")
-            answer = doc.metadata.get("answer", "")
-            full_text = f"问题: {question}\n\n答案: {answer}"
-            
-            # 创建新文档，page_content用于BM25
-            processed_doc = Document(
-                page_content=full_text,  # BM25使用完整文本
-                metadata={
-                    **doc.metadata,
-                    "question_text": question,      # vec_question字段使用
-                    "full_text": full_text          # vec_text字段使用
-                }
-            )
-            processed_docs.append(processed_doc)
-        
-        try:
-            # langchain-milvus会自动处理多向量字段的嵌入
-            ids = self.vectorstore.add_documents(processed_docs)
-            logger.info(f"成功添加 {len(ids)} 个文档到多向量字段集合")
-            return ids
-            
-        except Exception as e:
-            logger.error(f"添加文档失败: {e}")
-            raise
+            try:
+                summary = doc.metadata.get("summary", "")
+                text = doc.page_content
+                
+                q_vec = self.summary_embedding.embed_documents([summary])[0]  # -> vec_question
+                d_vec = self.text_embedding.embed_documents([text])[0]
+                
+                self.vectorstore.add_embeddings(
+                    texts=[text],                            # 写入 text 字段，供 BM25 读取
+                    embeddings=[[q_vec, d_vec]],       # None 可省略；BM25 会自己写 sparse
+                    metadatas=[doc.metadata],
+                    ids=None if self.config.milvus.auto_id else [doc.metadata.get("hash_id", "")]
+                )
+                num += 1
+            except Exception as e:
+                logger.info(f"添加{summary}数据失败")
+        logger.info(f"成功添加 {len(documents)} 个文档到多向量字段集合")
+        return num
     
     def hybrid_search(
         self,
@@ -132,7 +204,7 @@ class MedicalHybridKnowledgeBase:
         k: int = 10,
         ranker_type: str = "weighted",
         ranker_params: Optional[Dict[str, Any]] = None,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[str] = None
     ) -> List[Document]:
         """
         混合检索：同时使用多个向量字段
@@ -157,12 +229,13 @@ class MedicalHybridKnowledgeBase:
         
         try:
             # 执行混合检索
+            # query_emb = self.summary_embedding.embed_documents([query])[0]
             results = self.vectorstore.similarity_search(
                 query,
                 k=k,
                 ranker_type=ranker_type,
                 ranker_params=ranker_params,
-                expr=self._build_filter_expr(filters) if filters else None
+                expr=filters
             )
             
             logger.info(f"混合检索返回 {len(results)} 个结果")
@@ -171,26 +244,6 @@ class MedicalHybridKnowledgeBase:
         except Exception as e:
             logger.error(f"混合检索失败: {e}")
             raise
-    
-    def _build_filter_expr(self, filters: Dict[str, Any]) -> str:
-        """构建Milvus过滤表达式"""
-        expressions = []
-        
-        for key, value in filters.items():
-            if isinstance(value, str):
-                expressions.append(f'{key} == "{value}"')
-            elif isinstance(value, (int, float)):
-                expressions.append(f'{key} == {value}')
-            elif isinstance(value, list):
-                # 处理列表类型的过滤条件
-                if all(isinstance(v, str) for v in value):
-                    expr = " or ".join([f'{key} == "{v}"' for v in value])
-                    expressions.append(f"({expr})")
-                else:
-                    expr = " or ".join([f'{key} == {v}' for v in value])
-                    expressions.append(f"({expr})")
-        
-        return " and ".join(expressions)
     
     def as_retriever(self, **kwargs):
         """转换为检索器"""
@@ -233,36 +286,42 @@ class AdvancedDataProcessor:
         """
         documents = []
         
-        for i, record in enumerate(raw_documents):
-            question = record.get(self.data_config.question_field, "")
-            answer = record.get(self.data_config.answer_field, "")
+        for record in tqdm(raw_documents, desc="预处理文档"):
+            summary = record.get(self.data_config.summary_field, "")
+            document = record.get(self.data_config.document_field, "")
             
             # 构建完整文本（用于BM25和vec_text）
-            full_text = f"问题: {question}\n\n答案: {answer}"
+            if record.get(self.data_config.default_source, "qa") == "qa":
+                text = f"问题: {summary}\n\n答案: {document}"
+            else:
+                text = document
             
             # 构建元数据
             metadata = {
-                "question": question,
-                "answer": answer,
+                "summary": summary,
+                "document": document,
                 "source": record.get(self.data_config.source_field, self.data_config.default_source),
-                "question_text": question,      # 专门用于vec_question字段
-                "full_text": full_text,         # 专门用于vec_text字段
-                "id": record.get(self.data_config.id_field, f"doc_{i}")
+                "source_name": record.get(self.data_config.source_name_field, self.data_config.default_source_name),
+                "hash_id": hashlib.md5(summary.encode('UTF-8')).hexdigest(),
+                "lt_doc_id": record.get(self.data_config.lt_doc_id_field, self.data_config.default_lt_doc_id),
+                "chunk_id": record.get(self.data_config.chunk_id_field, self.data_config.default_chunk_id)
             }
             
             # 保留其他字段
             for key, value in record.items():
                 if key not in [
-                    self.data_config.question_field,
-                    self.data_config.answer_field,
+                    self.data_config.summary_field,
+                    self.data_config.document_field,
                     self.data_config.source_field,
-                    self.data_config.id_field
+                    self.data_config.source_name_field,
+                    self.data_config.lt_doc_id_field,
+                    self.data_config.chunk_id_field
                 ]:
                     metadata[key] = value
             
             # 创建文档（page_content用于BM25稀疏向量）
             document = Document(
-                page_content=full_text,  # BM25基于完整文本
+                page_content=text,  # BM25基于完整文本
                 metadata=metadata
             )
             
@@ -287,7 +346,7 @@ class AdvancedIngestionPipeline:
             self.kb.initialize_collection(drop_old=drop_old)
             
             # 2. 处理数据
-            logger.info("准备多向量字段文档...")
+            logger.info("预处理多向量字段文档...")
             documents = self.processor.prepare_multi_vector_documents(raw_data)
             
             # 3. 批量插入
@@ -295,12 +354,11 @@ class AdvancedIngestionPipeline:
             batch_size = self.config.ingestion.batch_size
             total_inserted = 0
             
-            for i in range(0, len(documents), batch_size):
+            for i in tqdm(range(0, len(documents), batch_size)):
                 batch = documents[i:i + batch_size]
                 try:
                     ids = self.kb.add_documents(batch)
-                    total_inserted += len(ids)
-                    logger.info(f"已插入批次 {i//batch_size + 1}，累计 {total_inserted} 个文档")
+                    total_inserted += ids
                 except Exception as e:
                     logger.error(f"插入批次失败: {e}")
                     continue

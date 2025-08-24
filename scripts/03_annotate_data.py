@@ -4,7 +4,7 @@
 import argparse
 import logging
 from MedicalRag.config.loader import load_config_from_file
-from MedicalRag.knowledge.annotation import run_annotation
+from MedicalRag.data.annotation import run_annotation
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

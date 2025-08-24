@@ -49,6 +49,13 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/06_simple_search.py",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "多向量存储",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/test.py",
+            "console": "integratedTerminal"
         }
     ]
 }
