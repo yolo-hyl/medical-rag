@@ -9,10 +9,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings  
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_milvus import Milvus, BM25BuiltInFunction
-
 from ..config.models import AppConfig, LLMConfig, DenseConfig
-from ..knowledge.bm25 import SimpleBM25Manager, BM25SparseEmbedding
 
 logger = logging.getLogger(__name__)
 

@@ -178,9 +178,16 @@ class BM25Vectorizer:
             score = idf * (f * (self.k1 + 1.0)) / (f + K)
             if score > 0:
                 vec[tid] = float(score)
-        return vec
+        return vec if vec is not None else {"0": 0.0}
 
     # --- 兼容原 API：直接给文本 ---
     def build_sparse_vec(self, text: str, avgdl: float, update_vocab: bool = False):
         tokens = self.tokenize(text)
         return self.build_sparse_vec_from_tokens(tokens, avgdl, update_vocab)
+    
+    def vectorize_texts(self, texts: List[str], avgdl)-> List[Dict[int, float]]:
+        vecs = []
+        for i in range(len(texts)):
+            tokens = self.tokenize(texts[i])
+            vecs.append(self.build_sparse_vec_from_tokens(tokens, avgdl))
+        return vecs

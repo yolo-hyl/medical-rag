@@ -18,6 +18,7 @@ from ..knowledge.sparse import Vocabulary, BM25Vectorizer
 from .insert import insert_rows
 from copy import deepcopy
 from langchain_core.tools import StructuredTool
+from ..knowledge.bm25 import BM25SparseEmbedding
 
 get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
 
@@ -44,20 +45,21 @@ class MedicalHybridKnowledgeBase:
         self.text_embedding = self._create_text_embedding()
         
         # 向量存储实例
-        self.client = MilvusClient(uri=self.milvus_config.uri, token=self.milvus_config.token)
-        
-        self._vocab = Vocabulary.load(self.embedding_config.text_sparse.vocab_path_or_name)
-        self._bm25 = BM25Vectorizer(
-            vocab=self._vocab,
-            domain_model=self.embedding_config.text_sparse.domain_model,
-            k1=self.embedding_config.text_sparse.k1,
-            b=self.embedding_config.text_sparse.b
-        )
-            
+        self.client = MilvusClient(uri=self.milvus_config.uri, token=self.milvus_config.token)            
         self.EMBEDDERS = {
             "summary_dense": self.summary_embedding,
             "text_dense": self.text_embedding
         }
+        
+        if self.embedding_config.text_sparse.provider == "self":
+            self._vocab = Vocabulary.load(self.embedding_config.text_sparse.vocab_path_or_name)
+            self._bm25 = BM25Vectorizer(
+                vocab=self._vocab,
+                domain_model=self.embedding_config.text_sparse.domain_model,
+                k1=self.embedding_config.text_sparse.k1,
+                b=self.embedding_config.text_sparse.b
+            )
+            self.EMBEDDERS["text_sparse"] = BM25SparseEmbedding(self._vocab, self._bm25)
         
     def _create_summary_embedding(self) -> Embeddings:
         """创建问题嵌入模型（用于vec_字段）"""
@@ -146,41 +148,6 @@ class MedicalHybridKnowledgeBase:
         else:
             return self.client  # 如果不删除老集合，那就直接返回，不要创建
     
-    def add_documents(self, documents: List[Document]) -> List[str]:
-        """添加文档，自动处理多向量字段"""
-        tokenizer_docs = []
-        
-        rows = []
-        for doc in documents:
-            # 提取问题和答案
-            summary = doc.metadata.get("summary", "")
-            text = doc.page_content
-            
-            # 上线这里要删掉
-            if len(doc.metadata.get("summary_dense", [])) == 0:
-                doc.metadata["summary_dense"] = self.summary_embedding.embed_documents([summary])[0]
-                
-            if len(doc.metadata.get("text_dense", [])) == 0:
-                doc.metadata["text_dense"] = self.summary_embedding.embed_documents([summary])[0]
-            
-            tokenizer_docs.append(text)
-            doc_dict = deepcopy(doc.metadata)
-            filtered = {k: v for k, v in doc_dict.items() if k in AllFields}
-            if not self.milvus_config.auto_id:
-                filtered["pk"] = doc.metadata.get("hash_id", "") 
-            rows.append(filtered)
-        
-        if self.embedding_config.text_sparse.provider == "self":
-            rows = self._build_text_sparse(rows=rows)
-            
-        insert_rows(
-            client=self.client,
-            collection_name=self.milvus_config.collection_name,
-            rows=rows,
-            show_progress=False  # 小批量直接false
-        )
-        return len(rows)
-    
     def build_index(self):
         index_params = self.client.prepare_index_params()
         index_params.add_index(
@@ -222,27 +189,48 @@ class MedicalHybridKnowledgeBase:
         )
         self.client.load_collection(self.milvus_config.collection_name)
     
-    def _build_text_sparse(self, rows):
-        avgdl = max(1.0, self._vocab.sum_dl / max(1, self._vocab.N))
-        for i in range(len(rows)):
-            text_tokens = self._bm25.tokenize(rows[i]['text'])
-            sp_text = self._bm25.build_sparse_vec_from_tokens(text_tokens, avgdl, update_vocab=False)
-            if not sp_text:
-                sp_text = { "0": 0.0 }
-            rows[i]["text_sparse"] = sp_text
-        return rows
+    def add_documents(self, documents: List[Document]) -> List[str]:
+        """添加文档，自动处理多向量字段"""
+        tokenizer_docs = []
+        
+        rows = []
+        for doc in documents:
+            # 提取问题和答案
+            summary = doc.metadata.get("summary", "")
+            text = doc.page_content
+            
+            # 上线这里要删掉
+            if len(doc.metadata.get("summary_dense", [])) == 0:
+                doc.metadata["summary_dense"] = self.EMBEDDERS["summary_dense"].embed_documents([summary])[0]
+                
+            if len(doc.metadata.get("text_dense", [])) == 0:
+                doc.metadata["text_dense"] = self.EMBEDDERS["text_dense"].embed_documents([summary])[0]
+            
+            tokenizer_docs.append(text)
+            doc_dict = deepcopy(doc.metadata)
+            filtered = {k: v for k, v in doc_dict.items() if k in AllFields}
+            if not self.milvus_config.auto_id:
+                filtered["pk"] = doc.metadata.get("hash_id", "") 
+            rows.append(filtered)
+        
+        if self.embedding_config.text_sparse.provider == "self":
+            rows["text_sparse"] = self.EMBEDDERS["text_sparse"].embed_documents([summary])[0]
+            
+        insert_rows(
+            client=self.client,
+            collection_name=self.milvus_config.collection_name,
+            rows=rows,
+            show_progress=False  # 小批量直接false
+        )
+        return len(rows)
+    
     
     def _encode_query(self, query, anns_field):
         if anns_field != "text_sparse":
             data = self.EMBEDDERS[anns_field].embed_query(query)
         else:
             if self.embedding_config.text_sparse.provider == "self":
-                avgdl = 1.0
-                toks = self._bm25.tokenize(query)
-                sp = self._bm25.build_sparse_vec_from_tokens(toks, avgdl, update_vocab=False)
-                if not sp:
-                    sp = { "0": 0.0 }
-                data = sp   # 自己进行稀疏向量生成
+                data = self.EMBEDDERS[anns_field].embed_query(query)  # 自己管理的词表
             else:
                 data = data  # 不做任何处理
         return data
