@@ -22,6 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from .KnowledgeBase import MedicalHybridKnowledgeBase
 import traceback
+from ..knowledge.sparse import Vocabulary
 
 get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
 
@@ -109,12 +110,17 @@ class IngestionPipeline:
         self.config = config
         self.kb = MedicalHybridKnowledgeBase(config)
     
-    def run(self, raw_data: List[Dict[str, Any]], drop_old: bool = False) -> bool:
+    def run(self, raw_data: List[Dict[str, Any]]) -> bool:
         """运行高级入库流水线"""
+        
+        if self.config.embedding.text_sparse.provider == "self":
+            _vocab = Vocabulary.load(self.config.embedding.text_sparse.vocab_path_or_name)
+            if _vocab is None:  # 未完成初始化
+                raise "请完成词表初始化，或者把稀疏向量交给Milvus管理"
         try:
             # 1. 初始化多向量字段集合
-            logger.info("初始化多向量字段集合...")
-            self.kb.initialize_collection(drop_old=drop_old)
+            logger.info("初始化多向量Milvus集合...")
+            client = self.kb._create_collection()
             
             # 2. 处理数据
             logger.info("预处理多向量字段文档...")
@@ -133,6 +139,9 @@ class IngestionPipeline:
                 except Exception as e:
                     logger.error(f"插入批次失败: {e}")
                     continue
+            
+            logger.info(f"开始构建索引")
+            self.kb.build_index()
             
             logger.info(f"高级入库完成！总共插入 {total_inserted} 个文档")
             logger.info(f"集合信息: {self.kb.get_collection_info()}")

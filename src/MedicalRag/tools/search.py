@@ -10,39 +10,6 @@ from pymilvus import (
     MilvusClient, DataType, Function, FunctionType
 )
 
-AnnsField = Literal[
-    "vec_summary", "vec_text", "sparse"
-]
-
-OutputFields = Literal[
-    "pk", "text", 
-    "summary", "document", 
-    "source", "source_name", 
-    "lt_doc_id", "chunk_id", 
-    "vec_summary", "vec_text", "sparse"
-]
-
-class FusionSpec(BaseModel):
-    method: Literal["rrf","weighted"] = "rrf"
-    k: int = Field(default=60, gt=0, le=200)  # RRF常用k=60
-    weigths = Optional[List] = [0.3, 0.4, 0.3]
-
-class SingleSearchRequest(BaseModel):
-    data: list[float] = Field(default_factory=list)
-    anns_field: AnnsField = "vec_summary"
-    search_params: dict = {"ef": 64}
-    limit: int = Field(default=50, gt=0, le=500)
-    expr: Optional[str] = "" 
-
-class SearchRequest(BaseModel):
-    queries: list[str]
-    collection_name: str
-    requests: List[SingleSearchRequest] = Field(default_factory=lambda: [SingleSearchRequest])
-    output_fields: List[OutputFields] = Field(default_factory=lambda: ["text","summary","document"])
-    fuse: FusionSpec = Field(default_factory=FusionSpec)
-    limit: int = Field(default=10, gt=0, le=500)
-
-
 class SearchTools:
     def __init__(self, milvus_config: MilvusConfig, embedding_config: EmbeddingConfig):
         self.milvus_config = milvus_config
@@ -73,7 +40,10 @@ class SearchTools:
             filter=single_search_request.expr,
             limit=single_search_request.limit,
             output_fields=output_fields,
-            search_params=single_search_request.search_params,
+            search_params={
+                "metric_type": single_search_request.metric_type, 
+                "params": {single_search_request.search_params}
+            },
             anns_field=single_search_request.anns_field
         )
         return result
@@ -87,7 +57,10 @@ class SearchTools:
         search_param = {
             "data": [data],
             "anns_field": single_search_request.anns_field,
-            "param": single_search_request.search_params,
+            "param": {
+                "metric_type": single_search_request.metric_type, 
+                "params": {single_search_request.search_params}
+            },
             "limit": single_search_request.limit,
             "expr": single_search_request.expr
         }
@@ -108,7 +81,7 @@ class SearchTools:
         if search.fuse.method == "rrf":
             rank = RRFRanker(search.fuse.k)
         elif search.fuse.method == "weighted":
-            rank = WeightedRanker(search.fuse.weigths)
+            rank = WeightedRanker(search.fuse.weights)
         result = self.client.hybrid_search(
             collection_name=search.collection_name,
             reqs=anns,

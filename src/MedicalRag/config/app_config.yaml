@@ -1,63 +1,42 @@
 milvus:
-  uri: "http://localhost:19530"
+  uri: http://localhost:19530
   token: null
-  collection_name: "medical_hybrid_knowledge"
-  drop_old: false
+  collection_name: medical_knowledge
+  drop_old: true
   auto_id: false
 
 embedding:
-  # 传统单一嵌入配置（向后兼容）
   summary_dense:
-    provider: "ollama"
-    model: "bge-m3:latest"
-    base_url: "http://localhost:11434"
+    provider: ollama
+    model: bge-m3:latest
+    base_url: http://localhost:11434
+    dimension: 1024
+  text_dense:
+    provider: ollama
+    model: bge-m3:latest
+    base_url: http://localhost:11434
     dimension: 1024
   text_sparse:
-    provider: "ollama"
-    model: "bge-m3:latest"
-    base_url: "http://localhost:11434"
-    dimension: 1024
+    provider: self
+    vocab_path_or_name: vocab.pkl.gz
+    algorithm: BM25
+    domain_model: medicine
+    k1: 1.5
+    b: 0.75
+    build:
+      workers: 8
+      chunksize: 64
 
 llm:
-  provider: "ollama"
-  model: "qwen3:32b"
-  base_url: "http://localhost:11434"
+  provider: ollama
+  model: qwen3:32b
+  base_url: http://localhost:11434
   temperature: 0.1
 
 data:
-  summary_field: "question"
-  document_field: "answer"
-  default_source: "qa"
-  default_source_name: "huatuo_qa"
-  default_lt_doc_id: ""
+  summary_field: question
+  document_field: answer
+  default_source: qa
+  default_source_name: huatuo_qa
+  default_lt_doc_id: ''
   default_chunk_id: -1
-  batch_size: 50
-
-search:
-  top_k: 10
-  rrf_k: 10
-  filters: ""
-  ranker_type: "weighted"
-  weights: [0.4, 0.3, 0.3]
-
-rag:
-  mode: "basic"
-  retrieval:
-    top_k: 10
-    hybrid_mode: true
-    use_question_vector: true
-    use_text_vector: true  
-    use_sparse_vector: true
-    
-    # 动态权重调整
-    adaptive_weights: true
-    query_type_weights:
-      symptom: [0.5, 0.3, 0.2]      # 症状查询重视问题匹配
-      treatment: [0.3, 0.4, 0.3]    # 治疗查询重视内容匹配
-      prevention: [0.3, 0.4, 0.3]   # 预防查询重视内容匹配
-      default: [0.4, 0.3, 0.3]
-
-ingestion:
-  batch_size: 50
-  max_workers: 4
-  build_vocab_if_needed: false  # 使用内置BM25，不需要构建词表

@@ -24,10 +24,20 @@ class DenseConfig(BaseModel):
     proxy: Optional[str] = None
     dimension: int = 1024
 
+class SparseConfig(BaseModel):
+    provider: Literal['self', 'Milvus'] = 'self'
+    vocab_path_or_name: str = "vocab.pkl.gz"
+    algorithm: str = "BM25"
+    domain_model: str = "medicine"
+    k1: float = 1.5
+    b: float = 0.75
+    build: dict = {"workers": 8, "chunksize": 64}
+
 # 更新嵌入配置，支持多向量
 class EmbeddingConfig(BaseModel):
     summary_dense: DenseConfig
     text_dense: DenseConfig
+    text_sparse: SparseConfig
 
 # =============================================================================
 # LLM 配置
@@ -60,82 +70,6 @@ class DataConfig(BaseModel):
     default_source_name: Optional[str] = "huatuo"  # QA数据源名称
     default_lt_doc_id: Optional[str] = ""
     default_chunk_id: Optional[int] = -1
-    batch_size: int = 100
-
-# =============================================================================
-# 检索配置
-# =============================================================================
-class SearchConfig(BaseModel):
-    """检索配置 - 更新版"""
-    # 原有配置（向后兼容）
-    top_k: int = 10
-    rrf_k: int = 100
-    filters: Optional[Dict[str, Any]] = None
-    ranker_type: Literal["weighted", "rrf"] = "weighted"
-    weights: List[float] = [0.4, 0.3, 0.3]
-
-# =============================================================================
-# 标注配置  
-# =============================================================================
-class AnnotationConfig(BaseModel):
-    """标注配置"""
-    # 并发控制
-    max_concurrent: int = 3
-    batch_size: int = 10
-    
-    # 重试机制
-    max_retries: int = 3
-    retry_delay: float = 2.0
-    
-    # 模型配置
-    model_backend: Literal['ollama', 'openai', 'vllm'] = 'ollama'
-    model_base_url: Optional[str] = None
-    model_name: str = "qwen3:32b"
-    temperature: float = 0.1
-    max_tokens: Optional[int] = 2000
-    timeout: int = 120
-    
-    # 标注选项
-    departments_enabled: bool = True  # 科室分类
-    categories_enabled: bool = True   # 问题类别分类
-    confidence_threshold: float = 0.8
-    
-    # 科室分类配置 (6大科室)
-    department_labels: List[str] = Field(default_factory=lambda: [
-        "内科", "外科", "妇产儿科", "五官科", "皮肤性病科", "其他科室"
-    ])
-    
-    # 问题类别配置 (8大类别)
-    category_labels: List[str] = Field(default_factory=lambda: [
-        "疾病诊断", "症状咨询", "治疗方案", "药物咨询", 
-        "检查化验", "预防保健", "康复指导", "其他咨询"
-    ])
-    
-    # 结果保存
-    save_intermediate: bool = True
-    intermediate_save_interval: int = 100
-    validate_results: bool = True
-    
-    # 提示词配置
-    use_custom_prompts: bool = False
-    custom_prompts_path: Optional[str] = None
-
-# =============================================================================
-# RAG配置
-# =============================================================================
-class GenerationConfig(BaseModel):
-    """生成配置"""  
-    # 生成参数
-    temperature: float = 0.1
-    max_tokens: Optional[int] = 2000
-    top_p: float = 0.9
-    frequency_penalty: float = 0.0
-    presence_penalty: float = 0.0
-    
-    # 回答格式
-    include_sources: bool = True
-    max_sources: int = 3
-    source_format: Literal['simple', 'detailed'] = 'simple'
 
 # =============================================================================
 # 更新主配置类
@@ -146,5 +80,39 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig  # 包含multi_vector配置
     llm: LLMConfig
     data: DataConfig
-    search: SearchConfig        # 包含hybrid_search配置
-    annotation: AnnotationConfig = Field(default_factory=AnnotationConfig)
+    
+# =============================================================================
+# 检索时需要传入的数据模型
+# =============================================================================
+
+AnnsField = Literal[
+    "summary_dense", "text_dense", "text_sparse"
+]
+
+OutputFields = Literal[
+    "pk", "text", 
+    "summary", "document", 
+    "source", "source_name", 
+    "lt_doc_id", "chunk_id", 
+    "summary_dense", "text_dense", "text_sparse"
+]
+
+class FusionSpec(BaseModel):
+    method: Literal["rrf","weighted"] = "rrf"
+    k: Optional[int] = Field(default=60, gt=0, le=200)  # RRF常用k=60
+    weights: Optional[List] = [0.3, 0.4, 0.3]
+
+class SingleSearchRequest(BaseModel):
+    anns_field: AnnsField = "summary_dense"
+    metric_type: Literal["COSINE","IP"] = "COSINE"
+    search_params: dict = {"ef": 64}
+    limit: int = Field(default=50, gt=0, le=500)
+    expr: Optional[str] = "" 
+
+class SearchRequest(BaseModel):
+    queries: list[str]
+    collection_name: str
+    requests: List[SingleSearchRequest] = Field(default_factory=lambda: [SingleSearchRequest])
+    output_fields: List[OutputFields] = Field(default_factory=lambda: ["text","summary","document"])
+    fuse: Optional[FusionSpec] = Field(default_factory=FusionSpec)
+    limit: int = Field(default=10, gt=0, le=500)

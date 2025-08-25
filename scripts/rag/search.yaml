@@ -1,7 +1,0 @@
-search:
-  top_k: 10
-  
-  rrf_k: 10
-  filters: ""
-  ranker_type: "weighted"
-  weights: [0.4, 0.3, 0.3]

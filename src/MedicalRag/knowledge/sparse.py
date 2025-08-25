@@ -94,7 +94,8 @@ class Vocabulary:
         try:
             if '/' not in path_or_name:  # 直接传入的名字
                 path = str(default_vocab_dir) + "/" + path_or_name
-            
+            if not Path(path).exists:
+                return None
             with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as f:
                 state = pickle.load(f)
             v = cls()
@@ -105,7 +106,6 @@ class Vocabulary:
             v.idf_arr = state.get("idf_arr", None)
             return v
         except Exception as e:
-            print(e)
             return None
         
 

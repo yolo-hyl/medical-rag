@@ -1,17 +1,22 @@
-# Medical RAG v2 使用指南
+# Medical RAG 使用指南
 
-基于 LangChain-Milvus 的简化医疗RAG系统，去除冗余，专注核心功能。
+基于 LangChain 和 Milvus 的医疗RAG系统，去除冗余，专注核心功能。
 
 ## 🏗️ 项目架构
 
 ```
-medical-rag-v2/
+medical-rag/
 ├── src/medical_rag/
 │   ├── config/              # 配置系统
 │   │   ├── models.py        # 配置数据模型
-│   │   └── loader.py        # 配置加载器
+│   │   ├── loader.py        # 配置加载器
+│   │   └── app_config.yaml  # 默认配置
 │   ├── core/                # 核心组件
-│   │   └── components.py    # LLM/嵌入/向量存储创建
+│   │   ├── components.py    # LLM/嵌入/向量存储创建
+│   │   ├── 
+│   │   ├──
+│   │   ├──
+│   │   └──
 │   ├── knowledge/           # 知识库功能
 │   │   ├── bm25.py         # BM25处理（保留原实现）
 │   │   ├── ingestion.py    # 数据入库

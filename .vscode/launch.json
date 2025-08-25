@@ -19,14 +19,14 @@
             "name": "写入数据",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/ingest/02_ingest_data.py",
+            "program": "${workspaceFolder}/scripts/02_ingest_data.py",
             "console": "integratedTerminal"
         },
         {
             "name": "混合检索",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/search/search.py",
+            "program": "${workspaceFolder}/scripts/03_search_data.py",
             "console": "integratedTerminal"
         },
         {
