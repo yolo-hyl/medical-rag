@@ -15,42 +15,19 @@ def main():
     # 创建基础RAG系统
     rag = BasicRAG(config_manager.config)
     
-    # 交互式问答
-    print("基础RAG系统已启动！输入 'quit' 退出")
-    print("=" * 50)
+    query = "我有点肚子痛，该怎么办？"
+    result = rag.answer(query, return_context=True)
     
-    while True:
-        try:
-            query = input("\n请输入您的问题: ").strip()
             
-            if query.lower() in ['quit', 'exit', '退出']:
-                break
+    print(f"\n回答: {result['answer']}")
             
-            if not query:
-                continue
-            
-            print("正在思考...")
-            
-            # 获取详细回答
-            result = rag.answer(query, return_context=True)
-            
-            print(f"\n回答: {result['answer']}")
-            
-            # 显示参考资料
-            if result['context']:
-                print(f"\n参考资料 ({len(result['context'])} 条):")
-                for i, ctx in enumerate(result['context'][:3], 1):
-                    print(f"{i}. {ctx['metadata'].get('source', 'unknown')}")
-                    content = ctx['content'][:200] + "..." if len(ctx['content']) > 200 else ctx['content']
-                    print(f"   {content}")
-            
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            logger.error(f"处理出错: {e}")
-            continue
-    
-    print("\n再见！")
+    # 显示参考资料
+    if result['context']:
+        print(f"\n参考资料 ({len(result['context'])} 条):")
+        for i, ctx in enumerate(result['context'][:3], 1):
+            print(f"{i}. {ctx['metadata'].get('source', 'unknown')}")
+            content = ctx['content'][:200] + "..." if len(ctx['content']) > 200 else ctx['content']
+            print(f"   {content}")
 
 if __name__ == "__main__":
     main()

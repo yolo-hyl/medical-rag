@@ -14,11 +14,11 @@ from pymilvus import MilvusClient, DataType, Collection, connections, FunctionTy
 from functools import lru_cache
 from pathlib import Path
 from ..config.models import AppConfig
-from ..knowledge.sparse import Vocabulary, BM25Vectorizer
+from ..embed.sparse import Vocabulary, BM25Vectorizer
 from .insert import insert_rows
 from copy import deepcopy
 from langchain_core.tools import StructuredTool
-from ..knowledge.bm25 import BM25SparseEmbedding
+from ..embed.bm25 import BM25SparseEmbedding
 
 get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
 

@@ -22,7 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from .KnowledgeBase import MedicalHybridKnowledgeBase
 import traceback
-from ..knowledge.sparse import Vocabulary
+from ..embed.sparse import Vocabulary
 
 get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
 

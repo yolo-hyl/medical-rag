@@ -15,7 +15,7 @@ from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
 from ..core.HybridRetriever import MedicalHybridRetriever
 from ..core.utils import create_llm_client
 from ..prompts.templates import get_prompt_template
-
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,7 @@ class BasicRAG:
             
         except Exception as e:
             logger.error(f"RAG处理失败: {e}")
+            print(traceback(e))
             error_msg = "抱歉，处理您的问题时出现错误，请稍后再试。"
             
             if return_context:
