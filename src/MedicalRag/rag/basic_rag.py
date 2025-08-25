@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import logging
 from typing import List, Dict, Any, Optional, Union
-
+from langchain_core.retrievers import BaseRetriever
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
 from langchain_core.language_models import BaseChatModel
-
+from operator import itemgetter
 from ..config.models import *
 from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
 from ..core.HybridRetriever import MedicalHybridRetriever
 from ..core.utils import create_llm_client
 from ..prompts.templates import get_prompt_template
 import traceback
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class BasicRAG:
         )
     
         self.knowledge_base = MedicalHybridKnowledgeBase(config)
-        self.self_retriever = MedicalHybridRetriever(self.knowledge_base, sr)
+        self.self_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, sr)
         
         # 初始化LLM
         self.llm = create_llm_client(config.llm)
@@ -70,7 +71,7 @@ class BasicRAG:
 
     def _setup_prompt(self) -> ChatPromptTemplate:
         """设置提示模板"""
-        template = get_prompt_template("basic_rag")
+        template = get_prompt_template("basic_rag")  # 获取基础RAG的提示词模板
         
         if isinstance(template, dict):
             prompt = ChatPromptTemplate.from_messages([
@@ -78,7 +79,7 @@ class BasicRAG:
                 ("human", template["user"]),
             ])
         else:
-            # 简单字符串模板
+            # 简单的字符串模板
             prompt = ChatPromptTemplate.from_template(template)
         
         return prompt
@@ -86,15 +87,55 @@ class BasicRAG:
     def _setup_chain(self):
         """构建RAG检索链"""
         
-        # 创建文档处理链
-        document_chain = create_stuff_documents_chain(
-            self.llm,
-            self.prompt
+        def format_document(inputs: dict) -> str:
+            """组合文本"""
+            formatted_docs = []
+            for index, item in enumerate(inputs["documents"]):
+                formatted_docs.append(f"## 文档{index+1}：\n{item.page_content}\n")
+            return "".join(formatted_docs)
+        
+        def strip_think(msg):
+            """去掉 <think>...</think> 标签内的内容，返回纯文本"""
+            if hasattr(msg, "content"):   # AIMessage
+                text = msg.content
+            else:                         # 已经是 str
+                text = str(msg)
+
+            # 删除所有 <think>...</think> 的部分
+            cleaned = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+            return cleaned.strip()
+        
+        # 1) 检索 -> 放入 inputs["documents"]
+        retrieve = (
+            RunnablePassthrough.assign(
+                documents=self.self_retriever
+            ).with_config(run_name="retrieve_documents")
         )
         
-        # 创建完整的RAG链
-        self.rag_chain = create_retrieval_chain(self.self_retriever, document_chain)
+        #  2) 把文档格式化成一个大字符串，供 prompt 使用
+        format_docs = (
+            RunnablePassthrough.assign(
+                all_document_str=format_document
+            ).with_config(run_name="format_doc")
+        )
         
+        # 3) 填充prompt，大模型输出回答
+        out_answer = (
+            self.prompt.with_config(run_name="apply_prompt")
+            | self.llm.with_config(run_name="generate")
+        )
+        
+        
+        # 3) 并联：左边生成答案，右边把命中的原始文档直接返回
+        self.rag_chain = (
+            retrieve
+            | format_docs
+            | RunnableParallel(
+                answer=out_answer | RunnableLambda(strip_think),
+                documents=lambda x: x["documents"],  # 保留documents字段，用于展示文档
+            )
+        ).with_config(run_name="rag")
+
         logger.info("RAG链构建完成")
 
     def answer(
@@ -120,12 +161,13 @@ class BasicRAG:
             answer = result.get("answer", "抱歉，根据提供的资料无法回答您的问题。")
             
             if return_context:
-                context_docs = result.get("context", [])
+                context_docs = result.get("documents", [])
                 formatted_context = [
                     {
                         "content": doc.page_content,
                         "metadata": doc.metadata,
                         "source": doc.metadata.get("source", "unknown"),
+                        "source_name": doc.metadata.get("source_name", "unkown"),
                         "distance": doc.metadata.get("distance", 0.0)
                     }
                     for doc in context_docs

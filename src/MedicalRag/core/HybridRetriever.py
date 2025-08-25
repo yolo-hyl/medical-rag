@@ -18,8 +18,8 @@ class MedicalHybridRetriever(BaseRetriever):
     
     def _get_relevant_documents(
         self, 
-        query: str
+        inputs: dict
     ) -> List[Document]:
         """检索逻辑"""
-        self.search_config.query = query
+        self.search_config.query = inputs.get("input", "")
         return self.knowledge_base.search(self.search_config)

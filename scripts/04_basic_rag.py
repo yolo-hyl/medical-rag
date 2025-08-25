@@ -19,15 +19,15 @@ def main():
     result = rag.answer(query, return_context=True)
     
             
-    print(f"\n回答: {result['answer']}")
+    print(f"\n{result['answer']}")
             
     # 显示参考资料
     if result['context']:
-        print(f"\n参考资料 ({len(result['context'])} 条):")
+        print(f"\n参考资料 ({len(result['context'])} 条):\n\n")
         for i, ctx in enumerate(result['context'][:3], 1):
-            print(f"{i}. {ctx['metadata'].get('source', 'unknown')}")
+            print(f"{i}. 数据源： {ctx['metadata'].get('source', 'unknown')} 数据源名：{ctx['metadata'].get('source_name', 'unknown')}")
             content = ctx['content'][:200] + "..." if len(ctx['content']) > 200 else ctx['content']
-            print(f"   {content}")
+            print(f"{content}\n\n")
 
 if __name__ == "__main__":
     main()

@@ -34,7 +34,8 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/04_basic_rag.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "justMyCode": false
         },
         {
             "name": "03_annotate_data",
