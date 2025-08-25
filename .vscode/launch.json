@@ -16,10 +16,24 @@
             "console": "integratedTerminal",
         },
         {
-            "name": "02_ingest_data",
+            "name": "写入数据",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/ingest/02_ingest_data.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "混合检索",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/search/search.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "基础RAG",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/rag/rag.py",
             "console": "integratedTerminal"
         },
         {
@@ -27,34 +41,6 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/03_annotate_data.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "04_basic_rag",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/04_basic_rag.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "05_agent_rag",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/05_agent_rag.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "06_search",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/search/search.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "多向量存储",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/test.py",
             "console": "integratedTerminal"
         }
     ]

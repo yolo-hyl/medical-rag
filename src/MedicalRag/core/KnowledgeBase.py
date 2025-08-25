@@ -7,8 +7,8 @@ from langchain_milvus import Milvus, BM25BuiltInFunction
 from langchain_openai import OpenAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
 from tqdm import tqdm
-from ..config.models import AppConfig, EmbeddingConfig, DenseConfig, DataConfig, MilvusConfig
-from .utils import create_embedding_client
+from ..config.models import *
+from .utils import create_embedding_client, create_llm_client
 import hashlib
 from pymilvus import MilvusClient, DataType, Collection, connections, FunctionType, Function
 from functools import lru_cache
@@ -47,10 +47,10 @@ def get_stopwords(source="all"):
 class MedicalHybridKnowledgeBase:
     """医疗混合知识库 - 支持多向量字段检索"""
     
-    def __init__(self, milvus_config: MilvusConfig, embedding_config: EmbeddingConfig):
+    def __init__(self, milvus_config: MilvusConfig, embedding_config: EmbeddingConfig, llm_config: LLMConfig):
         self.milvus_config = milvus_config
         self.embedding_config = embedding_config
-        
+        self.llm = create_llm_client(llm_config)
         # 创建多个嵌入模型实例
         self.summary_embedding = self._create_summary_embedding()
         self.text_embedding = self._create_text_embedding()
@@ -281,3 +281,11 @@ class MedicalHybridKnowledgeBase:
             "vector_fields": self.vectorstore.vector_fields,
             "status": "initialized"
         }
+    
+    def as_retriever(self) -> Any:
+        """Return a retriever configured according to the search config."""
+        if self.vectorstore is None:
+            raise RuntimeError("Collection has not been initialised.  Call initialize_collection() first.")
+        return self.vectorstore.as_retriever(
+            search_kwargs={"k": 10}
+        )

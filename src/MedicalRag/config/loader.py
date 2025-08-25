@@ -5,7 +5,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
-from .models import AgentConfig, AppConfig, MilvusConfig, EmbeddingConfig, DataConfig, LLMConfig, SearchConfig, AnnotationConfig, RAGConfig
+from .models import AppConfig, MilvusConfig, EmbeddingConfig, DataConfig, LLMConfig, SearchConfig, AnnotationConfig
 from typing import Dict, List, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field
 
@@ -79,7 +79,7 @@ class ConfigLoader:
     def load_llm_config(file_path: str) -> LLMConfig:
         """加载LLM配置"""
         data = _load_yaml(file_path)
-        return LLMConfig(**data)
+        return LLMConfig(**data["llm"])
     
     @staticmethod
     def load_data_config(file_path: str) -> DataConfig:
@@ -97,17 +97,6 @@ class ConfigLoader:
         """加载标注配置"""
         data = _load_yaml(file_path)
         return AnnotationConfig(**data)
-    
-    @staticmethod
-    def load_rag_config(file_path: str) -> RAGConfig:
-        """加载RAG配置"""
-        data = _load_yaml(file_path)
-        return RAGConfig(**data)
-    
-    @staticmethod
-    def load_rag_config(file_path: str) -> AgentConfig:
-        data = _load_yaml(file_path)
-        return AgentConfig(**data)
     
     @staticmethod
     def load_config_from_single_file(file_path: str) -> AppConfig:

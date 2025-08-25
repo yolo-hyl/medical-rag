@@ -136,54 +136,6 @@ class GenerationConfig(BaseModel):
     include_sources: bool = True
     max_sources: int = 3
     source_format: Literal['simple', 'detailed'] = 'simple'
-    
-    # 安全检查
-    enable_safety_check: bool = True
-    max_response_length: int = 5000
-
-class RAGConfig(BaseModel):
-    """RAG配置"""
-    # 模式选择
-    mode: Literal['basic', 'agent'] = 'basic'
-        
-    # 生成配置
-    generation: GenerationConfig = Field(default_factory=GenerationConfig)
-        
-    # 提示词配置
-    system_prompt_template: str = "medical_qa_system"
-    user_prompt_template: str = "medical_qa_user"
-    
-    # 对话历史
-    enable_chat_history: bool = False
-    max_history_length: int = 10
-    
-    # 缓存配置
-    enable_cache: bool = True
-    cache_ttl: int = 3600  # 缓存时间(秒)
-
-class AgentConfig(BaseModel):
-    """智能体RAG配置"""
-    # 工具使用
-    enable_web_search: bool = False
-    web_search_engine: Literal['brave', 'google', 'bing'] = 'brave'
-    web_search_max_results: int = 5
-    
-    # 计算工具
-    enable_calculator: bool = True
-    
-    # 决策参数
-    max_iterations: int = 5
-    planning_enabled: bool = True
-    
-    # 自主检索
-    auto_retrieval: bool = True
-    adaptive_k: bool = True  # 动态调整检索数量
-    
-    # 多源信息融合
-    multi_source_fusion: bool = True
-    source_priority: List[str] = Field(default_factory=lambda: [
-        "knowledge_base", "web_search", "calculation"
-    ])
 
 # =============================================================================
 # 更新主配置类
@@ -196,5 +148,3 @@ class AppConfig(BaseModel):
     data: DataConfig
     search: SearchConfig        # 包含hybrid_search配置
     annotation: AnnotationConfig = Field(default_factory=AnnotationConfig)
-    rag: RAGConfig = Field(default_factory=RAGConfig)
-    agent: AgentConfig = Field(default_factory=AgentConfig)

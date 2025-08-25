@@ -1,0 +1,6 @@
+milvus:
+  uri: "http://localhost:19530"
+  token: null
+  collection_name: "medical_knowledge"
+  drop_old: false
+  auto_id: false
