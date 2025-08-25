@@ -4,7 +4,7 @@
 
 ## 🌟 项目亮点
 
-- **专业医疗领域优化**：针对中文医疗场景定制的分词、停用词和BM25算法
+- **专业医疗领域优化**：支持领域稀疏向量计算，可直接通过配置完成领域词表管理；也可以使用原生的Milvus进行稀疏向量管理
 - **多向量混合检索**：稠密向量 + 稀疏向量(BM25) 的混合检索策略
 - **灵活的架构设计**：支持多种LLM提供商（OpenAI、Ollama）和嵌入模型
 - **完整的数据流水线**：从数据预处理、入库到检索问答的端到端解决方案
@@ -44,27 +44,21 @@ medical-rag/
 
 ### 1. 环境准备
 
-#### 安装Python依赖
+#### 使用conda环境
 ```bash
-pip install langchain>=0.2.0 langchain-openai>=0.1.0 langchain-ollama
-pip install langchain-milvus pymilvus>=2.4.0 langchain-community
-pip install datasets pydantic>=2.5 fastapi>=0.110 uvicorn[standard]>=0.23
-pip install typer>=0.12 python-dotenv>=1.0 tqdm>=4.66 rich>=13.7
-pip install pkuseg  # 中文医疗分词
+conda env create -f environment.yml
 ```
 
 #### 启动基础服务
 
 **启动 Milvus 向量数据库**
+
+由于本项目默认可以采用稀疏向量管理，所以需要使用客户端Milvus。
+
 ```bash
 # 使用项目提供的脚本
 cd Milvus
 bash standalone_embed.sh start
-
-# 或使用 Docker
-docker run -d --name milvus-standalone \
-  -p 19530:19530 -p 9091:9091 \
-  milvusdb/milvus:v2.6.0
 ```
 
 **启动 Ollama（如果使用本地模型）**
@@ -76,6 +70,7 @@ ollama serve
 ollama pull bge-m3:latest      # 嵌入模型
 ollama pull qwen3:32b          # 对话模型
 ```
+更多配置详见 [Ollama](https://ollama.com/)
 
 ### 2. 配置设置
 
@@ -151,7 +146,21 @@ vocab.freeze()
 vocab.save("vocab.pkl.gz")
 ```
 
+领域分词依赖 (pkuseg-python)[https://github.com/lancopku/pkuseg-python] 库，更多领域可详见其项目主页
+
 ### 2. 数据入库
+
+#### 数据配置
+
+```yaml
+data:
+  summary_field: question
+  document_field: answer
+  default_source: qa
+  default_source_name: huatuo_qa
+  default_lt_doc_id: ''
+  default_chunk_id: -1
+```
 
 支持医疗QA数据的批量入库，自动处理多向量字段：
 
@@ -178,6 +187,8 @@ success = pipeline.run(data)
   "source_name": "医学百科"
 }
 ```
+source和source_name可不指定，但需要配置默认的数据源和数据源名称
+本项目使用 [huatuo-qa](https://www.huatuogpt.cn/) 数据集，使用这个数据集可直接无缝入库
 
 ### 3. 混合检索测试
 
@@ -224,50 +235,25 @@ from MedicalRag.rag.basic_rag import BasicRAG
 config_loader = ConfigLoader() 
 rag = BasicRAG(config_loader.config)
 
-# 单次问答
-query = "糖尿病患者饮食需要注意什么？"
+# 问答
+query = "我有点肚子痛，该怎么办？"
 result = rag.answer(query, return_context=True)
-
-print(f"回答: {result['answer']}")
-print(f"参考资料数量: {result['context_count']}")
-
-# 查看检索到的参考资料
-for i, ctx in enumerate(result['context'], 1):
-    print(f"{i}. 来源: {ctx['metadata']['source']}")
-    print(f"   内容: {ctx['content'][:100]}...")
-    print(f"   相似度: {ctx['metadata']['distance']:.3f}")
+print(f"\n{result['answer']}")
+        
+# 显示参考资料
+if result['context']:
+    print(f"\n参考资料 ({len(result['context'])} 条):\n\n")
+    for i, ctx in enumerate(result['context'][:3], 1):
+        print(f"{i}. 数据源： {ctx['metadata'].get('source', 'unknown')} 数据源名：{ctx['metadata'].get('source_name', 'unknown')}")
+        content = ctx['content'][:200] + "..." if len(ctx['content']) > 200 else ctx['content']
+        print(f"{content}\n\n")
 ```
 
 ### 5. 医疗数据自动标注
 
 自动为医疗QA数据分类标注：
 
-```python
-# scripts/03_annotate_data.py
-from MedicalRag.data.annotation import AnnotationPipeline
-
-# 运行标注流水线
-pipeline = AnnotationPipeline(config)
-success = pipeline.run(
-    data_path="raw_medical_qa.jsonl",
-    output_path="annotated_medical_qa.json", 
-    question_field="question",
-    answer_field="answer"
-)
-```
-
-**标注结果示例：**
-```json
-{
-  "question": "高血压如何治疗？",
-  "answer": "高血压治疗包括药物治疗和生活方式干预...",
-  "departments": [0, 1],           // 内科系统、外科系统
-  "categories": [1, 2],            // 治疗方案类、药物用药类
-  "department_names": ["内科系统", "外科系统"],
-  "category_names": ["治疗方案类", "药物与用药安全类"],
-  "reasoning": "涉及高血压的药物治疗方案"
-}
-```
+暂未实现
 
 ## ⚙️ 高级配置
 
@@ -310,7 +296,7 @@ embedding:
   text_sparse:
     provider: self
     vocab_path_or_name: vocab.pkl.gz
-    domain_model: medicine    # 使用医疗分词模型
+    domain_model: medicine    # 使用医疗分词模型，完美迁移其他领域
     k1: 1.5                   # BM25参数调优
     b: 0.75
     build:
@@ -343,35 +329,6 @@ fuse = FusionSpec(
     method="weighted", 
     weights=[0.6, 0.3, 0.1]  # 对应各向量字段权重
 )
-```
-
-## 🔧 程序化集成
-
-### 作为库使用
-
-```python
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.rag.basic_rag import BasicRAG
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-
-# 初始化系统
-config = ConfigLoader().config
-rag_system = BasicRAG(config)
-
-# 批量问答
-questions = [
-    "感冒了怎么办？", 
-    "高血压吃什么药？",
-    "糖尿病饮食注意什么？"
-]
-
-answers = rag_system.batch_answer(questions, return_context=True)
-
-for q, a in zip(questions, answers):
-    print(f"问题: {q}")
-    print(f"回答: {a['answer']}")
-    print(f"参考文档: {len(a['context'])}")
-    print("-" * 50)
 ```
 
 ### 自定义提示词
@@ -464,7 +421,7 @@ if __name__ == "__main__":
 
 ### 性能调优建议
 
-1. **硬件配置**: 推荐16GB内存 + GPU加速
+1. **硬件配置**: 推荐16GB内存
 2. **批处理**: 大量数据入库时使用批处理模式  
 3. **索引优化**: 根据数据量调整HNSW参数
 4. **缓存策略**: 高频查询可增加缓存层
@@ -476,7 +433,7 @@ if __name__ == "__main__":
 ### 开发环境设置
 ```bash
 git clone https://github.com/your-repo/medical-rag
-cd medical-rag
+cd medical-rag/src
 pip install -e .
 ```
 
