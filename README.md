@@ -44,6 +44,9 @@ medical-rag/
 
 ### 1. 环境准备
 
+#### 数据集
+[huatuo-qa](https://www.huatuogpt.cn/) 数据集
+
 #### 使用conda环境
 ```bash
 conda env create -f environment.yml
@@ -146,7 +149,7 @@ vocab.freeze()
 vocab.save("vocab.pkl.gz")
 ```
 
-领域分词依赖 (pkuseg-python)[https://github.com/lancopku/pkuseg-python] 库，更多领域可详见其项目主页
+领域分词依赖 (pkuseg)[https://github.com/lancopku/pkuseg-python] 库，更多领域可详见其项目主页
 
 ### 2. 数据入库
 
