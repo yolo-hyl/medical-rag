@@ -16,7 +16,7 @@ def main():
         expr=""  # 过滤参数
     )
     sr1 = SearchRequest(
-        queries=[query],
+        query=query,
         collection_name=config_manager.config.milvus.collection_name,
         requests=[ssr],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
@@ -43,7 +43,7 @@ def main():
         expr=""  # 过滤参数
     )
     sr2 = SearchRequest(
-        queries=[query] * 2,
+        query=query,
         collection_name=config_manager.config.milvus.collection_name,
         requests=[ssr1, ssr2],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
@@ -73,7 +73,7 @@ def main():
         weights=[0.6, 0.4]
     )
     sr3 = SearchRequest(
-        queries=[query] * 2,
+        query=query,
         collection_name=config_manager.config.milvus.collection_name,
         requests=[ssr1, ssr2],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],

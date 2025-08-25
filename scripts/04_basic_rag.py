@@ -2,18 +2,18 @@
 基础RAG功能演示
 """
 import logging
-from MedicalRag.config.loader import load_config_from_file
-from MedicalRag.rag.basic_rag import create_basic_rag
+from MedicalRag.config.loader import ConfigLoader
+from MedicalRag.rag.basic_rag import BasicRAG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main():
     # 加载配置
-    config = load_config_from_file("config/app_config.yaml")
+    config_manager = ConfigLoader()
     
     # 创建基础RAG系统
-    rag = create_basic_rag(config)
+    rag = BasicRAG(config_manager.config)
     
     # 交互式问答
     print("基础RAG系统已启动！输入 'quit' 退出")

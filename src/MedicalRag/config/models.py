@@ -110,7 +110,7 @@ class SingleSearchRequest(BaseModel):
     expr: Optional[str] = "" 
 
 class SearchRequest(BaseModel):
-    queries: list[str]
+    query: str
     collection_name: str
     requests: List[SingleSearchRequest] = Field(default_factory=lambda: [SingleSearchRequest])
     output_fields: List[OutputFields] = Field(default_factory=lambda: ["text","summary","document"])

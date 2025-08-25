@@ -281,10 +281,10 @@ class MedicalHybridKnowledgeBase:
         search: SearchRequest
     ):
         anns = []
-        for i, item in enumerate(search.requests):
+        for item in search.requests:
             anns.append(
                 self._build_ann_search_request(
-                    query=search.queries[i], 
+                    query=search.query, 
                     single_search_request=item
                 )
             )
@@ -301,11 +301,11 @@ class MedicalHybridKnowledgeBase:
         )
         return result
     
-    def search(self, req: SearchRequest):
+    def search(self, req: SearchRequest) -> List[Document]:
         if len(req.requests) == 1:
             # 只有一个请求搜索，走普通的search
             outputs = self._search(
-                req.queries[0], 
+                req.query, 
                 req.requests[0], 
                 req.collection_name, 
                 req.output_fields
@@ -345,7 +345,7 @@ class MedicalHybridKnowledgeBase:
             if len(req.requests) == 1:
                 # 只有一个请求搜索，走普通的search
                 output = self._search(
-                    req.queries[0], 
+                    req.query, 
                     req.requests[0], 
                     req.collection_name, 
                     req.output_fields

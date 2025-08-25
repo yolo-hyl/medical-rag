@@ -33,7 +33,7 @@
             "name": "基础RAG",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/rag/rag.py",
+            "program": "${workspaceFolder}/scripts/04_basic_rag.py",
             "console": "integratedTerminal"
         },
         {
