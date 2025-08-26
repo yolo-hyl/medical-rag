@@ -50,9 +50,10 @@ def change_question(item):
     return item
 
 def main():
-    data = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/raw/train/sample/eval/qa_200.jsonl", split="train")
+    data = load_dataset("json", data_files="../qa_50000.jsonl", split="train")
+    data = data.shuffle().select(range(200))
     data = data.map(change_question, num_proc=8)
-    data.to_json("/home/weihua/medical-rag/raw_data/raw/train/sample/eval/new_qa_200.jsonl", orient="records", force_ascii=False)
+    data.to_json("./new_qa_200.jsonl", orient="records", force_ascii=False)
     
 if __name__ == "__main__":
     main()
