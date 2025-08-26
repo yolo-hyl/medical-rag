@@ -1,8 +1,9 @@
 # Medical RAG - 医疗智能问答系统
 
 基于 LangChain + Milvus 的专业医疗领域RAG(检索增强生成)系统，支持多向量混合检索和智能问答。
+使用约定数据格式，可无缝迁移到其他领域，例如：法学、金融
 
-## 实现与未实现
+## TODO LIST
 - [x] 自定义构建领域词表
 - [x] QA数据一键入库
 - [ ] 文献数据一键入库
@@ -61,10 +62,18 @@ medical-rag/
 
 #### 数据集
 [huatuo-qa](https://www.huatuogpt.cn/) 数据集
+也可以使用本项目提供的由 `huatuo-qa` 采样而来的数据集用作示例，详见 `data` 目录
 
 #### 使用conda环境
 ```bash
 conda env create -f environment.yml
+```
+
+#### 安装本项目
+```bash
+git clone https://github.com/yolo-hyl/medical-rag
+cd medical-rag/src
+pip install -e .
 ```
 
 #### 启动基础服务
@@ -90,9 +99,9 @@ ollama pull qwen3:32b          # 对话模型
 ```
 更多配置详见 [Ollama](https://ollama.com/)
 
-### 2. 配置设置
+### 2. 配置及向量库说明
 
-编辑 `src/MedicalRag/config/app_config.yaml`：
+编辑 `src/MedicalRag/config/app_config.yaml`可修改默认配置，也可在引入config时动态修改部分配置：
 
 ```yaml
 # Milvus向量数据库配置
@@ -100,8 +109,8 @@ milvus:
   uri: http://localhost:19530
   token: null
   collection_name: medical_knowledge
-  drop_old: true
-  auto_id: false
+  drop_old: true  # 第一次建库时，是否删除同名 collection，调试用，生产环境严禁使用
+  auto_id: false  # 可选是否自动生成id，否则采用hash值作为id自动去重
 
 # 嵌入模型配置（支持多向量字段）
 embedding:
@@ -138,37 +147,22 @@ data:
   default_source_name: huatuo_qa
 ```
 
-## 📚 核心功能使用
+### 3. 快速使用
 
-### 1. 构建BM25词表（自管理模式）
+#### 1. 构建BM25词表（自管理模式）
 
 当配置 `embedding.text_sparse.provider: "self"` 时需要先构建词表：
 
-```python
-# scripts/01_build_vocab.py
-from MedicalRag.embed.sparse import Vocabulary, BM25Vectorizer
-from datasets import load_dataset
-
-# 创建词表和向量化器
-vocab = Vocabulary()
-vectorizer = BM25Vectorizer(vocab, domain_model="medicine")
-
-# 加载训练数据
-dataset = load_dataset("json", data_files="your_data.jsonl", split="train")
-
-# 并行分词并构建词表
-for tokens in vectorizer.tokenize_parallel(dataset['text'], workers=8):
-    vocab.add_document(tokens)
-
-vocab.freeze()
-vocab.save("vocab.pkl.gz")
+```bash
+conda activate rag
+python scripts/01_build_vocab.py
 ```
 
-领域分词依赖 (pkuseg)[https://github.com/lancopku/pkuseg-python] 库，更多领域可详见其项目主页
+领域分词依赖 [pkuseg](https://github.com/lancopku/pkuseg-python) 库，更多领域可详见其项目主页。
 
-### 2. 数据入库
+#### 2. 数据入库
 
-#### 数据配置
+数据配置
 
 ```yaml
 data:
@@ -182,92 +176,56 @@ data:
 
 支持医疗QA数据的批量入库，自动处理多向量字段：
 
-```python
-# scripts/02_ingest_data.py
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-
-# 加载配置和数据
-config_loader = ConfigLoader()
-data = load_dataset("json", data_files="medical_qa.json", split="train")
-
-# 运行入库流水线
-pipeline = IngestionPipeline(config_loader.config)
-success = pipeline.run(data)
+```bash
+conda activate rag
+python scripts/02_ingest_data.py
 ```
 
 **数据格式示例：**
+
 ```json
 {
   "question": "高血压的症状有哪些？",
-  "answer": "高血压的主要症状包括头痛、头晕、心悸...",
-  "source": "qa",
-  "source_name": "医学百科"
+  "answer": "高血压的主要症状包括头痛、头晕、心悸..."
 }
 ```
-source和source_name可不指定，但需要配置默认的数据源和数据源名称
-本项目使用 [huatuo-qa](https://www.huatuogpt.cn/) 数据集，使用这个数据集可直接无缝入库
+source和source_name可不指定，但需要配置默认的数据源和数据源名称。
 
-### 3. 混合检索测试
+入库后，Milvus中存储的字段如下：
+
+| 字段名        | 字段类型            | 说明                                                         |
+| ------------- | ------------------- | ------------------------------------------------------------ |
+| pk            | INT64 or VARCHAR    | 主键。当自动生成id时，使用INT64，否则使用varchar             |
+| text          | VARCHAR             | 核心知识文本。qa数据=summary+document；文献数据=document     |
+| summary       | VARCHAR             | 当前知识摘要。qa数据=question；文献数据=采样或者生成的摘要示例文本 |
+| document      | VARCHAR             | 原始文本。qa数据=answer；文献数据=原始文本                   |
+| source        | VARCHAR             | 数据源。暂只支持：qa和literature                             |
+| source_name   | VARCHAR             | 数据源名称。例如：huatuo、neikebook                          |
+| lt_doc_id     | VARCHAR             | 文档id。用于寻找同一个切片的文档                             |
+| chunk_id      | INT64               | 切片id。同一个切片的数据切片id相同，用于反查相关文档         |
+| summary_dense | FLOAT_VECTOR        | 摘要的稠密向量                                               |
+| text_dense    | FLOAT_VECTOR        | 知识的稠密向量                                               |
+| text_sparse   | SPARSE_FLOAT_VECTOR | 知识的稀疏向量，用于关键词匹配                               |
+
+#### 3. 混合检索测试
 
 测试多向量混合检索效果：
 
-```python
-# scripts/03_search_data.py  
-from MedicalRag.config.models import SingleSearchRequest, SearchRequest, FusionSpec
-
-# 单向量检索
-ssr = SingleSearchRequest(
-    anns_field="summary_dense",  # 检索字段
-    metric_type="COSINE",        # 相似度度量
-    search_params={"ef": 64},    # 检索参数
-    limit=10,                    # 结果数量
-    expr=""                      # 过滤条件
-)
-
-# 多向量混合检索  
-search_request = SearchRequest(
-    query="头痛头晕怎么办？",
-    collection_name="medical_knowledge", 
-    requests=[
-        SingleSearchRequest(anns_field="summary_dense", limit=10),
-        SingleSearchRequest(anns_field="text_sparse", metric_type="IP", limit=10)
-    ],
-    fuse=FusionSpec(method="weighted", weights=[0.7, 0.3]),
-    limit=20
-)
-
-kb = MedicalHybridKnowledgeBase(config)
-results = kb.search(search_request)
+```bash
+python scripts/03_search_data.py  
 ```
 
-### 4. RAG问答系统
+#### 4. RAG问答系统
 
 基于检索结果生成专业医疗回答：
 
-```python
-# scripts/04_basic_rag.py
-from MedicalRag.rag.basic_rag import BasicRAG
-
-# 创建RAG系统
-config_loader = ConfigLoader() 
-rag = BasicRAG(config_loader.config)
-
-# 问答
-query = "我有点肚子痛，该怎么办？"
-result = rag.answer(query, return_context=True)
-print(f"\n{result['answer']}")
-        
-# 显示参考资料
-if result['context']:
-    print(f"\n参考资料 ({len(result['context'])} 条):\n\n")
-    for i, ctx in enumerate(result['context'][:3], 1):
-        print(f"{i}. 数据源： {ctx['metadata'].get('source', 'unknown')} 数据源名：{ctx['metadata'].get('source_name', 'unknown')}")
-        content = ctx['content'][:200] + "..." if len(ctx['content']) > 200 else ctx['content']
-        print(f"{content}\n\n")
+```bash
+python scripts/04_basic_rag.py
 ```
 
-### 5. 医疗数据自动标注
+将会生成以下数据的知识库检索回答：**我有点肚子痛，该怎么办？**
+
+#### 5. 医疗数据自动标注（暂未实现）
 
 自动为医疗QA数据分类标注：
 
@@ -278,6 +236,7 @@ if result['context']:
 ### 多LLM提供商支持
 
 **OpenAI配置（支持代理）:**
+
 ```yaml
 llm:
   provider: openai
@@ -398,6 +357,10 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
+## 📊 Debug For VsCode
+
+本项目还定义了 .vscode 快捷启动配置，可使用vscode打开一键运行。
+
 ## 📊 性能和特色
 
 ### 核心优势
@@ -405,7 +368,7 @@ if __name__ == "__main__":
 | 特性 | 说明 |
 |------|------|
 | **医疗领域优化** | 使用pkuseg医疗分词、医疗停用词库 |
-| **混合检索** | 稠密向量+稀疏向量，召回率更高 |  
+| **混合检索** | 稠密向量+稀疏向量，召回率更高 |
 | **多向量架构** | 问题向量、文本向量、BM25向量独立优化 |
 | **灵活配置** | 支持多种LLM/嵌入模型提供商 |
 | **生产就绪** | 完整的数据流水线和错误处理 |
@@ -447,13 +410,6 @@ if __name__ == "__main__":
 ## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request！
-
-### 开发环境设置
-```bash
-git clone https://github.com/your-repo/medical-rag
-cd medical-rag/src
-pip install -e .
-```
 
 ### 代码规范
 - 遵循PEP 8编码规范
