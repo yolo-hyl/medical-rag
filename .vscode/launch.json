@@ -38,6 +38,14 @@
             "justMyCode": false
         },
         {
+            "name": "基础RAG评测",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/05_eval_rag.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "03_annotate_data",
             "type": "debugpy",
             "request": "launch",
