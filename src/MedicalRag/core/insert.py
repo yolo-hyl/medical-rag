@@ -1,5 +1,5 @@
 """
-批量插入、upsert、delete、compaction（带可选进度条）
+批量插入、upsert、delete 工具类（带可选进度条）
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Iterable, Callable, Optional

@@ -1,15 +1,11 @@
 from __future__ import annotations
-
 import logging
 from typing import List, Dict, Any, Optional, Union
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
-from langchain_core.language_models import BaseChatModel
-from operator import itemgetter
 from ..config.models import *
 from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
 from ..core.HybridRetriever import MedicalHybridRetriever
@@ -24,37 +20,40 @@ logger = logging.getLogger(__name__)
 class BasicRAG:
     """基础医疗RAG系统 - 使用LangChain标准组件构建"""
 
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, search_config: SearchRequest = None):
         self.config = config
         
-        # 初始化知识库
-        ssr1 = SingleSearchRequest(
-            anns_field="summary_dense",  # 检索的字段
-            metric_type="COSINE",  # 标尺
-            search_params={"ef": 64},  # 参数
-            limit=10,  # 查询数量
-            expr=""  # 过滤参数
-        )
-        ssr2 = SingleSearchRequest(
-            anns_field="text_sparse",  # 检索的字段
-            metric_type="IP",  # 标尺
-            search_params={ "drop_ratio_search": 0.0 },  # 参数
-            limit=10,  # 查询数量
-            expr=""  # 过滤参数
-        )
-        fuse = FusionSpec(
-            method="weighted",
-            weights=[0.8, 0.2]
-        )
-        sr = SearchRequest(
-            query="",
-            collection_name=config.milvus.collection_name,
-            requests=[ssr1, ssr2],
-            output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
-            fuse=fuse,
-            limit=10
-        )
+        if not search_config:
+            ssr1 = SingleSearchRequest(
+                anns_field="summary_dense",  # 检索的字段
+                metric_type="COSINE",
+                search_params={"ef": 64},  # 参数
+                limit=10,  # 查询数量
+                expr=""  # 过滤参数
+            )
+            ssr2 = SingleSearchRequest(
+                anns_field="text_sparse",
+                metric_type="IP", 
+                search_params={ "drop_ratio_search": 0.0 },
+                limit=10,
+                expr=""
+            )
+            fuse = FusionSpec(
+                method="weighted",
+                weights=[0.8, 0.2]
+            )
+            sr = SearchRequest(
+                query="",
+                collection_name=config.milvus.collection_name,
+                requests=[ssr1, ssr2],
+                output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
+                fuse=fuse,
+                limit=10
+            )
+        else:
+            sr = search_config
     
+        # 初始化向量知识库和文档检索器
         self.knowledge_base = MedicalHybridKnowledgeBase(config)
         self.self_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, sr)
         
@@ -126,7 +125,7 @@ class BasicRAG:
         )
         
         
-        # 3) 并联：左边生成答案，右边把命中的原始文档直接返回
+        # 4) 并联：左边生成答案，右边把命中的原始文档直接返回
         self.rag_chain = (
             retrieve
             | format_docs
@@ -211,20 +210,8 @@ class BasicRAG:
             
         return results
 
-    def update_search_config(self, search_config: Dict[str, Any]):
+    def update_search_config(self, search_config: SearchRequest):
         """更新检索配置并重建链"""
-        retriever = self.knowledge_base.as_retriever(search_config)
-        document_chain = create_stuff_documents_chain(self.llm, self.prompt)
-        self.rag_chain = create_retrieval_chain(retriever, document_chain)
+        self.self_retriever = MedicalHybridRetriever(self.knowledge_base, search_config)  # 重新设置search配置
+        self._setup_chain()
         logger.info(f"搜索配置已更新: {search_config}")
-
-    def get_stats(self) -> Dict[str, Any]:
-        """获取系统统计信息"""
-        kb_info = self.knowledge_base.get_collection_info()
-        
-        return {
-            "knowledge_base": kb_info,
-            "llm_model": self.config.llm.model,
-            "llm_provider": self.config.llm.provider,
-            "embedding_model": self.config.embedding.summary_dense.model
-        }

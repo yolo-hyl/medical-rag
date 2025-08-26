@@ -1,4 +1,3 @@
-# src/medical_rag/prompts/templates.py
 """
 Prompt模板管理（保持与原项目一致）
 """

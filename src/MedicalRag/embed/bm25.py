@@ -1,6 +1,5 @@
-# src/medical_rag/knowledge/bm25.py
 """
-BM25稀疏向量处理（保留原项目实现）
+BM25稀疏向量的langchain接口封装，以便直接调用
 """
 import math
 from typing import List, Dict, Iterable, Iterator

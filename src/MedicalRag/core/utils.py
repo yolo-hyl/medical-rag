@@ -1,6 +1,5 @@
-# src/medical_rag/core/components.py
 """
-核心组件封装，使用langchain-milvus
+工具类，创建合适的llm和embedding客户端
 """
 import logging
 from typing import List, Dict, Any, Optional, Union

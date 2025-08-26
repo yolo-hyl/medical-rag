@@ -52,6 +52,7 @@ class MedicalHybridKnowledgeBase:
         }
         
         if self.embedding_config.text_sparse.provider == "self":
+            # 如果自己管理词表，则还要创建一个BM25 Embedding
             self._vocab = Vocabulary.load(self.embedding_config.text_sparse.vocab_path_or_name)
             self._bm25 = BM25Vectorizer(
                 vocab=self._vocab,
@@ -62,14 +63,15 @@ class MedicalHybridKnowledgeBase:
             self.EMBEDDERS["text_sparse"] = BM25SparseEmbedding(self._vocab, self._bm25)
         
     def _create_summary_embedding(self) -> Embeddings:
-        """创建问题嵌入模型（用于vec_字段）"""
+        """创建问题嵌入模型（用于summary_dense字段）"""
         return create_embedding_client(self.embedding_config.summary_dense)
     
     def _create_text_embedding(self) -> Embeddings:
-        """创建文本嵌入模型（用于vec_text字段）"""
+        """创建文本嵌入模型（用于text_dense字段）"""
         return create_embedding_client(self.embedding_config.text_dense)
     
     def _create_collection(self):
+        """ 使用原生 Milvus 客户端创建Collection"""
         assert self.embedding_config.summary_dense.dimension == self.embedding_config.summary_dense.dimension, "多向量单行存储时，两个嵌入模型嵌入向量维度必须相同"
         dim = self.embedding_config.summary_dense.dimension
         if self.milvus_config.drop_old:
@@ -149,6 +151,7 @@ class MedicalHybridKnowledgeBase:
             return self.client  # 如果不删除老集合，那就直接返回，不要创建
     
     def build_index(self):
+        """ 构建合适的索引，构建完成之后load """
         index_params = self.client.prepare_index_params()
         index_params.add_index(
             field_name="summary_dense", 
@@ -206,21 +209,24 @@ class MedicalHybridKnowledgeBase:
             if len(doc.metadata.get("text_dense", [])) == 0:
                 doc.metadata["text_dense"] = self.EMBEDDERS["text_dense"].embed_documents([summary])[0]
             
-            tokenizer_docs.append(text)
+            tokenizer_docs.append(text)  # 需要进行稀疏向量编码的text字段
             doc_dict = deepcopy(doc.metadata)
             filtered = {k: v for k, v in doc_dict.items() if k in AllFields}
             if not self.milvus_config.auto_id:
-                filtered["pk"] = doc.metadata.get("hash_id", "") 
+                # 如果不采用自动id，则默认id实现为quesiton的hash值，以便插入时覆盖重复数据
+                filtered["pk"] = doc.metadata.get("hash_id", "")
+            filtered["text"] = text
             rows.append(filtered)
         
         if self.embedding_config.text_sparse.provider == "self":
+            # 如果自管理词表，则还需要进行稀疏向量的构建
             rows["text_sparse"] = self.EMBEDDERS["text_sparse"].embed_documents([summary])[0]
             
         insert_rows(
             client=self.client,
             collection_name=self.milvus_config.collection_name,
             rows=rows,
-            show_progress=False  # 小批量直接false
+            show_progress=False  # 小批量不显示进度条
         )
         return len(rows)
     
@@ -232,7 +238,7 @@ class MedicalHybridKnowledgeBase:
             if self.embedding_config.text_sparse.provider == "self":
                 data = self.EMBEDDERS[anns_field].embed_query(query)  # 自己管理的词表
             else:
-                data = data  # 不做任何处理
+                data = data  # 自动托管的BM25算法时，传入的查询不需要做任何处理
         return data
     
     def _search(
@@ -242,6 +248,7 @@ class MedicalHybridKnowledgeBase:
         collection_name: str,
         output_fields: list[str]
     ):
+        """ Milvus 原生的查询单个问题 https://milvus.io/docs/zh/filtered-search.md """
         data = self._encode_query(query=query, anns_field=single_search_request.anns_field)
                 
         result = self.client.search(
@@ -263,6 +270,7 @@ class MedicalHybridKnowledgeBase:
         query,
         single_search_request: SingleSearchRequest
     ) -> AnnSearchRequest:
+        """ 构建子 AnnSearchRequest 请求"""
         data = self._encode_query(query=query, anns_field=single_search_request.anns_field)
         search_param = {
             "data": [data],
@@ -280,8 +288,9 @@ class MedicalHybridKnowledgeBase:
         self,
         search: SearchRequest
     ):
+        """ Milvus 原生混合查询 https://milvus.io/docs/zh/multi-vector-search.md"""
         anns = []
-        for item in search.requests:
+        for item in search.requests:  # 构建子查询
             anns.append(
                 self._build_ann_search_request(
                     query=search.query, 
@@ -312,11 +321,11 @@ class MedicalHybridKnowledgeBase:
             )[0]  # 批量中的第一条，这里先不支持批量查询
         else:
             # 有多个请求搜索，走混合search
-            outputs = self._hybrid_search(req)[0]  # 批量中的第一条，这里先不支持批量查询
+            outputs = self._hybrid_search(req)[0]
 
         results = []  
         
-        for i in range(len(outputs)):  # 批量中的第一条，这里先不支持批量查询
+        for i in range(len(outputs)): # 封装获得 List[Document]
             results.append(
                 Document(
                     page_content=outputs[i]["entity"]["text"], 

@@ -1,10 +1,3 @@
-"""
-高级组件：使用langchain-milvus的多向量字段混合检索
-实现与main分支一致的混合检索策略：
-- vec_question: question的稠密向量检索
-- vec_text: question+answer的稠密向量检索  
-- sparse: BM25稀疏向量检索（基于question+answer）
-"""
 import logging
 from typing import List, Dict, Any, Optional, Union
 from langchain_core.documents import Document
@@ -61,7 +54,9 @@ def prepare_multi_vector_documents(data_config: DataConfig, raw_documents: List[
         summary = record.get(data_config.summary_field, "")
         document = record.get(data_config.document_field, "")
         
-        # 构建完整文本（用于BM25和vec_text）
+        # 构建完整文本（用于BM25和text_dense）
+        # 如果是 QA 数据，则 summary = 问题、 document = 回答 、 text = 问题 + 回答
+        # 如果是 literature 文献数据，则 summary = 特殊抽取的文段摘要、document = 正文、text = document = 正文
         if record.get(data_config.default_source, "qa") == "qa":
             text = f"问题: {summary}\n\n答案: {document}"
         else:
