@@ -14,7 +14,7 @@ def main():
     """主函数""" 
     # 1. 加载配置
     config_manager = ConfigLoader()
-    data = load_dataset("json", data_files="/home/weihua/medical-rag/raw_data/raw/train/sample/qa_embed_50000.json", split="train")
+    data = load_dataset("json", data_files="data/qa_embed_50000.json", split="train")
     print(f"配置加载成功")
     print(f"   集合名称: {config_manager.config.milvus.collection_name}")
     
