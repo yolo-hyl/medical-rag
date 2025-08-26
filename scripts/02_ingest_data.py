@@ -9,12 +9,15 @@ from datasets import load_dataset
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main():
     """主函数""" 
     # 1. 加载配置
     config_manager = ConfigLoader()
-    data = load_dataset("json", data_files="data/qa_embed_50000.json", split="train")
+    # config_manager.change({"milvus.auto_id": True})  # 自动管理id
+    data = load_dataset("json", data_files="data/qa_50000.jsonl", split="train")
+    data = data.select(range(100))  # 快速体验插入100条数据
     print(f"配置加载成功")
     print(f"   集合名称: {config_manager.config.milvus.collection_name}")
     

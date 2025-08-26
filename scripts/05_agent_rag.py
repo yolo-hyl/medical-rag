@@ -3,7 +3,7 @@
 """
 import logging
 from MedicalRag.config.loader import load_config_from_file
-from MedicalRag.rag.basic_rag import create_agent_rag
+from MedicalRag.rag.SimpleRag import create_agent_rag
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
