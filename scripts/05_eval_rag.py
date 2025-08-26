@@ -34,7 +34,7 @@ def main():
         dashscope_api_key=os.getenv("DASHSCOPE_API_KEY")
     )
     eval = RagasRagEvaluate(rag_components=rag, eval_datasets=eval_data, eval_llm=qwen_llm, embedding=qwen_embedding)
-    eval.do_sample(1)
+    eval.do_sample(10)  # 根据需要进行快速修改
     print(eval.do_evaluate(datasets_query_field_name="new_question", datasets_reference_field_name="answer"))
 
 if __name__ == "__main__":
