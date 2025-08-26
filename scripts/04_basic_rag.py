@@ -13,7 +13,7 @@ def main():
     config_manager = ConfigLoader()
     # 创建基础RAG系统
     rag = SimpleRAG(config_manager.config)
-    query = "我有点肚子痛，该怎么办？"
+    query = "我有点肚子痛，该怎么办？" # 在传统中医中，蜣螂及其粪球"转丸"被用于治疗哪些疾病，具体有哪些药用价值？
     result = rag.answer(query, return_document=True)
     print(f"\n{result['answer']}")
     # 显示参考资料
