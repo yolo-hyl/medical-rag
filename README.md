@@ -11,6 +11,7 @@
 - [x] 自定义混合检索
 - [x] 多向量多嵌入模型混合检索
 - [x] 基础RAG单轮问答
+- [x] RAG评测
 - [ ] 基础RAG多轮问答
 - [ ] 网络检索等复杂工具定义
 - [ ] RAG智能体多轮问答
@@ -46,7 +47,9 @@ medical-rag/
 │   ├── data/                # 数据处理
 │   │   └── annotation.py    # 自动标注系统
 │   ├── rag/                 # RAG核心
-│   │   └── basic_rag.py     # 基础RAG实现
+│   │   ├── RagBase.py       # RAG实现的基类
+│   │   ├── RagEvaluate.py   # RAG评测的基类与实现类
+│   │   └── SimpleRag.py     # 基础RAG实现
 │   ├── prompts/             # 提示词管理
 │   │   └── templates.py     # 提示词模板
 │   └── tools/               # 工具集
