@@ -3,8 +3,7 @@ import logging
 from typing import List, Dict, Any, Optional, Union
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.chains.retrieval import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.documents import Document
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
 from ..config.models import *
 from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
@@ -13,56 +12,24 @@ from ..core.utils import create_llm_client
 from ..prompts.templates import get_prompt_template
 import traceback
 import re
+from .RagBase import BasicRAG
 
 logger = logging.getLogger(__name__)
 
 
-class BasicRAG:
+class SimpleRAG(BasicRAG):
     """基础医疗RAG系统 - 使用LangChain标准组件构建"""
 
     def __init__(self, config: AppConfig, search_config: SearchRequest = None):
-        self.config = config
-        
-        if not search_config:
-            ssr1 = SingleSearchRequest(
-                anns_field="summary_dense",  # 检索的字段
-                metric_type="COSINE",
-                search_params={"ef": 64},  # 参数
-                limit=10,  # 查询数量
-                expr=""  # 过滤参数
-            )
-            ssr2 = SingleSearchRequest(
-                anns_field="text_sparse",
-                metric_type="IP", 
-                search_params={ "drop_ratio_search": 0.0 },
-                limit=10,
-                expr=""
-            )
-            fuse = FusionSpec(
-                method="weighted",
-                weights=[0.8, 0.2]
-            )
-            sr = SearchRequest(
-                query="",
-                collection_name=config.milvus.collection_name,
-                requests=[ssr1, ssr2],
-                output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
-                fuse=fuse,
-                limit=10
-            )
-        else:
-            sr = search_config
-    
+        super().__init__(config, search_config)
         # 初始化向量知识库和文档检索器
         self.knowledge_base = MedicalHybridKnowledgeBase(config)
-        self.self_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, sr)
+        self.self_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, self.search_config)
         
         # 初始化LLM
         self.llm = create_llm_client(config.llm)
-        
         # 设置prompt模板
         self.prompt = self._setup_prompt()
-        
         # 构建RAG链
         self._setup_chain()
         
@@ -140,75 +107,30 @@ class BasicRAG:
     def answer(
         self, 
         query: str, 
-        return_context: bool = False
-    ) -> Union[str, Dict[str, Any]]:
-        """回答问题
-        
-        Args:
-            query: 用户问题
-            return_context: 是否返回检索到的上下文
-            search_config: 自定义检索配置
-            
-        Returns:
-            str 或包含答案和上下文的dict
-        """
+        return_document: bool = False
+    ) -> Union[str, Dict[str, Union[str, List[Document]]]]:
         logger.info(f"处理问题: {query}")
         
         try:
             result = self.rag_chain.invoke({"input": query})
-            
             answer = result.get("answer", "抱歉，根据提供的资料无法回答您的问题。")
-            
-            if return_context:
+            if return_document:
                 context_docs = result.get("documents", [])
-                formatted_context = [
-                    {
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "source": doc.metadata.get("source", "unknown"),
-                        "source_name": doc.metadata.get("source_name", "unkown"),
-                        "distance": doc.metadata.get("distance", 0.0)
-                    }
-                    for doc in context_docs
-                ]
-                
                 return {
                     "answer": answer,
-                    "query": query,
-                    "context": formatted_context,
-                    "context_count": len(formatted_context)
+                    "documents": context_docs
                 }
-            
-            return answer
-            
+            return {"answer": answer}
         except Exception as e:
             logger.error(f"RAG处理失败: {e}")
             print(traceback(e))
             error_msg = "抱歉，处理您的问题时出现错误，请稍后再试。"
-            
-            if return_context:
+            if return_document:
                 return {
                     "answer": error_msg,
-                    "query": query,
-                    "context": [],
-                    "context_count": 0
+                    "documents": []
                 }
-            
-            return error_msg
-
-    def batch_answer(
-        self, 
-        queries: List[str],
-        return_context: bool = False
-    ) -> List[Union[str, Dict[str, Any]]]:
-        """批量回答问题"""
-        results = []
-        
-        for query in queries:
-            result = self.answer(query, return_context=return_context)
-            results.append(result)
-            
-        return results
+            return {"answer": error_msg}
 
     def update_search_config(self, search_config: SearchRequest):
         """更新检索配置并重建链"""
