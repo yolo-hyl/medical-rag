@@ -79,6 +79,10 @@ def main():
     data = load_dataset("json", data_files="../qa_50000.jsonl", split="train")
     data = data.shuffle().select(range(200))
     data = data.map(change_question, num_proc=8)
+    data = data.remove_columns(["text"])
+    # 删除解析失败的数据
+    data = data.filter(lambda ex: (ex.get("new_question") or "") != "")
+    data = data.filter(lambda ex: (ex.get("new_answer") or "") != "")
     data.to_json("./new_qa_200.jsonl", orient="records", force_ascii=False)
     
 if __name__ == "__main__":
