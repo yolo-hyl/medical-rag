@@ -66,13 +66,14 @@ medical-rag/
 
 #### 使用conda环境
 ```bash
+git clone https://github.com/yolo-hyl/medical-rag
+cd medical-rag
 conda env create -f environment.yml
 ```
 
 #### 安装本项目
 ```bash
-git clone https://github.com/yolo-hyl/medical-rag
-cd medical-rag/src
+cd src
 pip install -e .
 ```
 
