@@ -115,7 +115,7 @@ class IngestionPipeline:
         try:
             # 1. 初始化多向量字段集合
             logger.info("初始化多向量Milvus集合...")
-            client = self.kb._create_collection()
+            _ = self.kb._create_collection()
             
             # 2. 处理数据
             logger.info("预处理多向量字段文档...")
@@ -128,18 +128,13 @@ class IngestionPipeline:
             
             for i in tqdm(range(0, len(documents), batch_size)):
                 batch = documents[i:i + batch_size]
-                try:
-                    ids = self.kb.add_documents(batch)
-                    total_inserted += ids
-                except Exception as e:
-                    logger.error(f"插入批次失败: {e}")
-                    continue
+                ids = self.kb.add_documents(batch)
+                total_inserted += ids
             
             logger.info(f"开始构建索引")
             self.kb.build_index()
             
             logger.info(f"高级入库完成！总共插入 {total_inserted} 个文档")
-            logger.info(f"集合信息: {self.kb.get_collection_info()}")
             
             return True
             

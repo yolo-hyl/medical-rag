@@ -216,12 +216,11 @@ class MedicalHybridKnowledgeBase:
                 # 如果不采用自动id，则默认id实现为quesiton的hash值，以便插入时覆盖重复数据
                 filtered["pk"] = doc.metadata.get("hash_id", "")
             filtered["text"] = text
+            if self.embedding_config.text_sparse.provider == "self":
+                # 如果自管理词表，则还需要进行稀疏向量的构建
+                filtered["text_sparse"] = self.EMBEDDERS["text_sparse"].embed_documents([summary])[0]
             rows.append(filtered)
-        
-        if self.embedding_config.text_sparse.provider == "self":
-            # 如果自管理词表，则还需要进行稀疏向量的构建
-            rows["text_sparse"] = self.EMBEDDERS["text_sparse"].embed_documents([summary])[0]
-            
+                
         insert_rows(
             client=self.client,
             collection_name=self.milvus_config.collection_name,
