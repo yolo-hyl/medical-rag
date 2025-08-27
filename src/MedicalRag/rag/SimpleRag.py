@@ -13,6 +13,8 @@ from ..prompts.templates import get_prompt_template
 import traceback
 import re
 from .RagBase import BasicRAG
+from langchain_core.messages import AIMessage
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +26,18 @@ class SimpleRAG(BasicRAG):
         super().__init__(config, search_config)
         # 初始化向量知识库和文档检索器
         self.knowledge_base = MedicalHybridKnowledgeBase(config)
-        self.self_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, self.search_config)
+        self.milvus_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, self.search_config)
         
         # 初始化LLM
         self.llm = create_llm_client(config.llm)
         # 设置prompt模板
-        self.prompt = self._setup_prompt()
+        self.prompt = self._setup_dialogue_rag_prompt()
         # 构建RAG链
         self._setup_chain()
         
         logger.info("BasicRAG 系统初始化完成")
 
-    def _setup_prompt(self) -> ChatPromptTemplate:
+    def _setup_dialogue_rag_prompt(self) -> ChatPromptTemplate:
         """设置提示模板"""
         template = get_prompt_template("basic_rag")  # 获取基础RAG的提示词模板
         
@@ -51,55 +53,42 @@ class SimpleRAG(BasicRAG):
         return prompt
 
     def _setup_chain(self):
-        """构建RAG检索链"""
-        
-        def format_document(inputs: dict) -> str:
-            """组合文本"""
-            formatted_docs = []
-            for index, item in enumerate(inputs["documents"]):
-                formatted_docs.append(f"## 文档{index+1}：\n{item.page_content}\n")
-            return "".join(formatted_docs)
-        
-        def strip_think(msg):
-            """去掉 <think>...</think> 标签内的内容，返回纯文本"""
-            if hasattr(msg, "content"):   # AIMessage
-                text = msg.content
-            else:                         # 已经是 str
-                text = str(msg)
+        def format_document_str(inputs: dict) -> str:
+            documents: List[Document] = inputs["milvus_result"]["documents"]
+            parts = []
+            for i, d in enumerate(documents):
+                parts.append(f"## 文档{i+1}：\n{d.page_content}\n")
+            return "".join(parts)
 
-            # 删除所有 <think>...</think> 的部分
+        def strip_think_and_time(msg: AIMessage):
+            text = msg.content
             cleaned = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
-            return cleaned.strip()
-        
-        # 1) 检索 -> 放入 inputs["documents"]
-        retrieve = (
-            RunnablePassthrough.assign(
-                documents=self.self_retriever
-            ).with_config(run_name="retrieve_documents")
-        )
-        
-        #  2) 把文档格式化成一个大字符串，供 prompt 使用
-        format_docs = (
-            RunnablePassthrough.assign(
-                all_document_str=format_document
-            ).with_config(run_name="format_doc")
-        )
-        
-        # 3) 填充prompt，大模型输出回答
-        out_answer = (
+            dur = msg.response_metadata.get("total_duration", 0) / 1e9
+            return {"answer": cleaned.strip(), "generate_time": dur}
+
+
+        # 1) 检索：从 inputs["input"] 取查询，再喂给 retriever，结果放入 inputs["documents"]
+        retrieve = RunnablePassthrough.assign(
+            milvus_result=self.milvus_retriever
+        ).with_config(run_name="retrieve_documents")
+
+        # 2) 格式化：把 documents 合成一个字符串，放入 inputs["all_document_str"]
+        format_docs = RunnablePassthrough.assign(
+            all_document_str=RunnableLambda(format_document_str)
+        ).with_config(run_name="format_doc")
+
+        # 3) 生成：prompt -> llm -> 清洗
+        generate = (
             self.prompt.with_config(run_name="apply_prompt")
             | self.llm.with_config(run_name="generate")
+            | RunnableLambda(strip_think_and_time)
         )
-        
-        
-        # 4) 并联：左边生成答案，右边把命中的原始文档直接返回
+
+        # 4) 把答案挂回到上下文中，保留 documents 等键
         self.rag_chain = (
             retrieve
             | format_docs
-            | RunnableParallel(
-                answer=out_answer | RunnableLambda(strip_think),
-                documents=lambda x: x["documents"],  # 保留documents字段，用于展示文档
-            )
+            | RunnablePassthrough.assign(llm=generate)
         ).with_config(run_name="rag")
 
         logger.info("RAG链构建完成")
@@ -113,14 +102,19 @@ class SimpleRAG(BasicRAG):
         
         try:
             result = self.rag_chain.invoke({"input": query})
-            answer = result.get("answer", "抱歉，根据提供的资料无法回答您的问题。")
+            answer = result["llm"]["answer"]
             if return_document:
-                context_docs = result.get("documents", [])
                 return {
                     "answer": answer,
-                    "documents": context_docs
+                    "documents": result["milvus_result"]["documents"],
+                    "search_time": result["milvus_result"]["search_time"],
+                    "generation_time": result["llm"]["generate_time"]
                 }
-            return {"answer": answer}
+            return {
+                "answer": answer,
+                "search_time": result["milvus_result"]["search_time"],
+                "generation_time": result["llm"]["generate_time"]
+            }
         except Exception as e:
             logger.error(f"RAG处理失败: {e}")
             print(traceback(e))
@@ -134,6 +128,6 @@ class SimpleRAG(BasicRAG):
 
     def update_search_config(self, search_config: SearchRequest):
         """更新检索配置并重建链"""
-        self.self_retriever = MedicalHybridRetriever(self.knowledge_base, search_config)  # 重新设置search配置
+        self.milvus_retriever = MedicalHybridRetriever(self.knowledge_base, search_config)  # 重新设置search配置
         self._setup_chain()
         logger.info(f"搜索配置已更新: {search_config}")

@@ -59,7 +59,7 @@ class BasicRAG(ABC):
         logger.info("完成检索配置初始化")
 
     @abstractmethod
-    def _setup_prompt(self) -> ChatPromptTemplate:
+    def _setup_dialogue_rag_prompt(self) -> ChatPromptTemplate:
         """设置提示模板"""
         pass
 

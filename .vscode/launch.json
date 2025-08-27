@@ -47,11 +47,12 @@
             "justMyCode": false
         },
         {
-            "name": "03_annotate_data",
+            "name": "多轮对话RAG",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/03_annotate_data.py",
-            "console": "integratedTerminal"
-        }
+            "program": "${workspaceFolder}/scripts/06_muti_dialogue_rag.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
     ]
 }

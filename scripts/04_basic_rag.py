@@ -15,7 +15,7 @@ def main():
     rag = SimpleRAG(config_manager.config)
     query = "我有点肚子痛，该怎么办？" # 在传统中医中，蜣螂及其粪球"转丸"被用于治疗哪些疾病，具体有哪些药用价值？
     result = rag.answer(query, return_document=True)
-    print(f"\n{result['answer']}")
+    print(f"\n检索完成，检索用时：{result['search_time']} s，生成用时：{result['generation_time']} s \n\n{result['answer']}")
     # 显示参考资料
     if "documents" in result:
         print(f"\n参考资料 ({len(result['documents'])} 条)，展示前3条:\n\n")
