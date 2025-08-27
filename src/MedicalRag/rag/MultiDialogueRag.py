@@ -16,21 +16,23 @@ from ..core.HybridRetriever import MedicalHybridRetriever
 from ..core.utils import create_llm_client
 from ..prompts.templates import get_prompt_template
 from .RagBase import BasicRAG
-
-# import os
-# os.environ["LANGCHAIN_TRACING_V2"] = "true"
-# os.environ["LANGCHAIN_PROJECT"] = "rag-dev"
+from .utils import ESTIMATE_FUNCTION_REGISTRY
+import traceback
+import os
 
 logger = logging.getLogger(__name__)
 
-MAX_TOKEN = 2048
-DEL_DIALOGUE_COUNT = 2
 
 class MultiDialogueRag(BasicRAG):
     """多轮对话医疗RAG系统"""
 
     def __init__(self, config: AppConfig, search_config: SearchRequest = None):
         super().__init__(config, search_config)
+        
+        if config.multi_dialogue_rag.smith_debug:
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+            os.environ["LANGCHAIN_PROJECT"] = "rag-dev"
+            
         self.knowledge_base = MedicalHybridKnowledgeBase(config)
         self.self_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, self.search_config)
         self.llm = create_llm_client(config.llm)
@@ -39,13 +41,24 @@ class MultiDialogueRag(BasicRAG):
         self._histories: Dict[str, ChatMessageHistory] = {}  # session_id -> 一个history
         self._token_meta_store = {}      # {"session_id": {"msg_len": List[int], "msg_token_len": List[int]}
         self._running_summaries: Dict[str, str] = {}  # session_id -> str
-        self.max_history_tokens = 1200  # 预算阈值（需要时可暴露配置）
-        # 若需要更精确的 token 估算，可引入 tiktoken 估算消息长度
+        
+        # 用于动态生成上下文
+        self._system_prompt_text_len = len(get_prompt_template("dialogue_rag")["system"])
+        self._user_prompt_text_len = len(get_prompt_template("dialogue_rag")["user"])
+        self._histories_prompt_text_len = 0
+        self.avg_tokens_per_char = 1e-5  # 第一次给一个很小的值以便能够有准确的交互，没有交互来预测平均值会不准确
 
         self.dialogue_rag_prompt = self._setup_dialogue_rag_prompt()
         self._setup_chain()
 
         logger.info("对论对话 RAG 初始化完成")
+        
+    # ---------- 历史获取器 ----------
+    def _get_history(self, session_id: str) -> ChatMessageHistory:
+        if session_id not in self._histories:
+            self._histories[session_id] = ChatMessageHistory()
+            self._running_summaries[session_id] = ""
+        return self._histories[session_id]
 
     def _setup_dialogue_rag_prompt(self) -> ChatPromptTemplate:
         base = get_prompt_template("dialogue_rag")
@@ -63,22 +76,23 @@ class MultiDialogueRag(BasicRAG):
                 ("human", user_msg),
             ]
         )
+        self
         return prompt
     
-    def _estimate_over_max_token(self, session_id: str, exist_chars: int):
+    def _avg_estimate_over_max_token(self, session_id: str, exist_chars: int):
         meta = self._token_meta_store.get(session_id)
         if not meta: 
             return False
         # 1) 计算平均一个字符花费多少token
         msg_len = meta["msg_len"]
         msg_token_len = meta["msg_token_len"]
-        avg_tokens_per_char =  sum(msg_token_len) / sum(msg_len)
+        self.avg_tokens_per_char =  sum(msg_token_len) / sum(msg_len)
         # 2) 预测这次回答可能会生成多少token
         avg_char_len = sum(msg_len) / max(1, len(msg_len))
-        predict_token = int(avg_tokens_per_char * avg_char_len)
+        predict_token = int( self.avg_tokens_per_char * avg_char_len)
         # 3) 判断是否可能超出最长token数量
-        curr_all_token = int(predict_token + exist_chars * avg_tokens_per_char)
-        if curr_all_token > MAX_TOKEN:
+        curr_all_token = int(predict_token + exist_chars *  self.avg_tokens_per_char)
+        if curr_all_token > self.config.multi_dialogue_rag.llm_max_token * self.config.multi_dialogue_rag.max_token_threshold:
             # 需要删除历史信息
             return True
         else:
@@ -93,8 +107,19 @@ class MultiDialogueRag(BasicRAG):
             return
         
         # 估算是否超过token
-        total_chars = sum(len(m.content) for m in hist.messages if hasattr(m, "content"))
-        if not self._estimate_over_max_token(session_id=session_id, exist_chars=total_chars):  
+        total_chars = "\n".join([m.content for m in hist.messages if hasattr(m, "content")])
+        
+        if self.config.multi_dialogue_rag.estimate_token_fun != "avg":
+            try:
+                estimate_token = ESTIMATE_FUNCTION_REGISTRY[self.config.multi_dialogue_rag.estimate_token_fun](total_chars)
+                if estimate_token < self.config.multi_dialogue_rag.llm_max_token * self.config.multi_dialogue_rag.max_token_threshold:
+                    return 
+            except Exception as e:
+                logger.error("注册的估计函数错误，回退到默认avg实现...")
+                print(traceback(e))
+                if not self._avg_estimate_over_max_token(session_id=session_id, exist_chars=total_chars):  
+                    return
+        elif not self._avg_estimate_over_max_token(session_id=session_id, exist_chars=total_chars):  
             return
 
         # 把旧消息（配置50%）压缩
@@ -103,8 +128,11 @@ class MultiDialogueRag(BasicRAG):
     def _get_summary(self, session_id: str):
         """ 生成摘要 """
         hist = self._histories.get(session_id)
-        logger.warning(f"[{session_id}] 对话过长，需要生成摘要...")
-        cutoff = max(2, len(hist.messages) // DEL_DIALOGUE_COUNT)
+        
+        if self.config.multi_dialogue_rag.console_debug:
+            logger.warning(f"[{session_id}] 对话过长，需要生成摘要...")
+            
+        cutoff = max(2, len(hist.messages) // self.config.multi_dialogue_rag.cut_dialogue_scale)
         old_msgs = hist.messages[:cutoff]
         # 生成摘要
         summarize_prompt = ChatPromptTemplate.from_messages([
@@ -116,7 +144,9 @@ class MultiDialogueRag(BasicRAG):
         summary = re.sub(r"<think>.*?</think>\s*", "", summary_result.content, flags=re.DOTALL).strip()
         dur = summary_result.response_metadata.get("total_duration", 0) / 1e9
         tokens = summary_result.usage_metadata["total_tokens"]
-        logger.warning(f"[{session_id}] 摘要生成完毕，耗时：{dur} s，使用tokens：{tokens}...")
+        
+        if self.config.multi_dialogue_rag.console_debug:
+            logger.warning(f"[{session_id}] 摘要生成完毕，耗时：{dur} s，使用tokens：{tokens}\n摘要文本：\n{summary}")
         
         # 如果有摘要，那就回车换行继续加
         prev = self._running_summaries.get(session_id, "")
@@ -125,12 +155,6 @@ class MultiDialogueRag(BasicRAG):
 
         # 丢弃已压缩的旧消息，保留后半段
         hist.messages = hist.messages[cutoff:]
-
-    # ---------- 历史获取器 ----------
-    def _get_history(self, session_id: str) -> ChatMessageHistory:
-        if session_id not in self._histories:
-            self._histories[session_id] = ChatMessageHistory()
-        return self._histories[session_id]
 
     @staticmethod
     def _strip_think_get_tokens(msg: AIMessage):
@@ -145,6 +169,64 @@ class MultiDialogueRag(BasicRAG):
             "msg_token_len": msg_token_len,
             "generate_time": dur
         }
+        
+    def _build_document_context(
+        self, 
+        documents: List[Document], 
+        rewritten_query: str, 
+        session_id: str, 
+        history_msgs: List[Union[AIMessage, HumanMessage, SystemMessage]]
+    ) -> str:
+        remain_token = self.config.multi_dialogue_rag.llm_max_token
+        his_text = "\n".join(
+            getattr(m, "content", "") for m in history_msgs if hasattr(m, "content")
+        )
+        
+        user_text = get_prompt_template("dialogue_rag")["user"].format(
+            llm_rewritten_content=rewritten_query,
+            all_document_str=""  # 先占位，后面再计算文档长度
+        )
+        summaries_text = self._running_summaries[session_id]
+        system_text = get_prompt_template("dialogue_rag")["system"].format(running_summary=summaries_text)
+        all_chars = his_text + system_text + user_text
+        
+        parts = []
+        used = 0
+        if self.config.multi_dialogue_rag.estimate_token_fun != "avg":
+            all_token = ESTIMATE_FUNCTION_REGISTRY[self.config.multi_dialogue_rag.estimate_token_fun](all_chars)
+            remain_token -= all_token - self.config.multi_dialogue_rag.llm_max_token * 0.01
+        else:
+            all_prompt_chars_len = len(all_chars)
+            remain_token -= all_prompt_chars_len - self.config.multi_dialogue_rag.llm_max_token * 0.01
+        
+        for idx, d in enumerate(documents):
+            header = f"## 文档{idx+1}：\n"
+            body = d.page_content or ""
+            if self.config.multi_dialogue_rag.estimate_token_fun != "avg":
+                header_tokens = ESTIMATE_FUNCTION_REGISTRY[self.config.multi_dialogue_rag.estimate_token_fun](header)
+                body_tokens = ESTIMATE_FUNCTION_REGISTRY[self.config.multi_dialogue_rag.estimate_token_fun](body)
+            else:
+                header_tokens = self.avg_tokens_per_char * len(header)
+                body_tokens = self.avg_tokens_per_char * len(body)
+                
+            if used + header_tokens + body_tokens <= remain_token:
+                parts.append(header + body + "\n")
+                used += header_tokens + body_tokens
+            else:
+                # 放不下整篇
+                if self.config.multi_dialogue_rag.console_debug:
+                    logger.warning(f"根据给定的token估计方法，预估无法完成全部文档编码，文档{idx+1}被截断，后续文档将无法被放入上下文...")
+                remain = remain_token - used - header_tokens
+                if remain > 0:
+                    # 依据平均token估算可保留字符数
+                    keep_chars = max(0, int(remain / max(0.1, self.avg_tokens_per_char)))
+                    if keep_chars > 0:
+                        parts.append(header + body[:keep_chars] + "\n...[内容已截断]\n")
+                        used = remain_token  # 填满
+                break  # 无论是否部分放入，预算已到
+            
+        return "".join(parts)
+        
     
     # ---------- 构建多轮 RAG 链 ----------
     def _setup_chain(self):
@@ -163,11 +245,12 @@ class MultiDialogueRag(BasicRAG):
 
         def do_format(inputs: dict) -> str:
             documents: List[Document] = inputs["milvus_result"]["documents"]
-            formatted = []
-            for idx, d in enumerate(documents):
-                formatted.append(f"## 文档{idx+1}：\n{d.page_content}\n")
-                logger.info(f"检索到的内容: {d.page_content[0:100]}...")
-            all_document_str = "".join(formatted)
+            all_document_str = self._build_document_context(
+                documents=documents,
+                rewritten_query=inputs["llm_rewritten_query"]["msg"],
+                session_id=inputs.get("session_id", "default"),
+                history_msgs=inputs.get("history", [])
+            )
             return {**inputs, "all_document_str": all_document_str, "llm_rewritten_content": inputs["llm_rewritten_query"]["msg"]}
         
 
@@ -241,6 +324,7 @@ class MultiDialogueRag(BasicRAG):
                 {
                     "original_input": query,
                     "running_summary": self._running_summaries.get(session_id, ""),
+                    "session_id": session_id
                 },
                 config={"configurable": {"session_id": session_id}}
             )
@@ -250,16 +334,37 @@ class MultiDialogueRag(BasicRAG):
             
             answer = result.get("answer", "抱歉，根据提供的资料无法回答您的问题。")
             if return_document:
-                context_docs = result.get("documents", [])
-                return {"answer": answer, "documents": context_docs}
-            return {"answer": answer}
+                return {
+                    "answer": answer, 
+                    "documents": result["milvus_result"]["documents"], 
+                    "search_time": result["milvus_result"]["search_time"],
+                    "rewriten_generate_time": result["llm_rewritten_query"]["generate_time"],
+                    "out_generate_time": result["llm_out_result"]["generate_time"]
+                }
+            return {
+                "answer": answer,
+                "search_time": result["milvus_result"]["search_time"],
+                "rewriten_generate_time": result["llm_rewritten_query"]["generate_time"],
+                "out_generate_time": result["llm_out_result"]["generate_time"]
+            }
 
         except Exception as e:
             logger.exception(f"[{session_id}] RAG处理失败: {e}")
             error_msg = "抱歉，处理您的问题时出现错误，请稍后再试。"
             if return_document:
-                return {"answer": error_msg, "documents": []}
-            return {"answer": error_msg}
+                return {
+                    "answer": error_msg, 
+                    "documents": [],
+                    "search_time": -1,
+                    "rewriten_generate_time": -1,
+                    "out_generate_time": -1
+                }
+            return {
+                "answer": error_msg, 
+                "search_time": -1,
+                "rewriten_generate_time": -1,
+                "out_generate_time": -1
+            }
 
     # ---------- 更新检索配置 ----------
     def update_search_config(self, search_config: SearchRequest):

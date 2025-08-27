@@ -40,3 +40,12 @@ data:
   default_source_name: huatuo_qa
   default_lt_doc_id: ''
   default_chunk_id: -1
+
+multi_dialogue_rag: 
+  estimate_token_fun: tiktoken
+  llm_max_token: 1024
+  cut_dialogue_scale: 2   # 裁切一次砍一半
+  max_token_threshold: 1.01
+  smith_debug: false
+  console_debug: true
+  thinking_in_context: false

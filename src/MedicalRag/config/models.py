@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # =============================================================================
 # Milvus 配置
@@ -72,6 +73,19 @@ class DataConfig(BaseModel):
     default_chunk_id: Optional[int] = -1
 
 # =============================================================================
+# 多轮RAG对话配置
+# =============================================================================
+class MultiDialogueRagConfig(BaseModel):
+    """ 多轮对话关键配置 """
+    estimate_token_fun: str = "avg"
+    llm_max_token: int = 1024
+    max_token_threshold: float = 1.1   # 宽松阈值
+    cut_dialogue_scale: int = Field(default=2, ge=2, description="裁切一次砍一半，必须>=2")
+    smith_debug: bool = False
+    console_debug: bool = False
+    thinking_in_context: bool = False
+
+# =============================================================================
 # 更新主配置类
 # =============================================================================
 class AppConfig(BaseModel):
@@ -80,6 +94,7 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig  # 包含multi_vector配置
     llm: LLMConfig
     data: DataConfig
+    multi_dialogue_rag: MultiDialogueRagConfig
     
 # =============================================================================
 # 检索时需要传入的数据模型
