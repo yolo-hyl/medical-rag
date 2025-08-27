@@ -252,8 +252,12 @@ python change_data.py
 python 05_eval_rag.py
 ```
 
-#### 7. 医疗数据自动标注（暂未实现）
-...
+#### 7. 多轮问答RAG
+
+```bash
+python 06_muti_dialogue_rag
+```
+然后输入你的问题即可
 
 ## ⚙️ 高级配置
 
