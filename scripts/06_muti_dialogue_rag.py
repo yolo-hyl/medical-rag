@@ -1,20 +1,14 @@
 """
-基础RAG功能演示
+多轮对话RAG功能演示
 """
 import logging
 from MedicalRag.config.loader import ConfigLoader
 from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
-from MedicalRag.rag.utils import register_estimate_function
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
-@register_estimate_function("self_fun")
-def estimate_tokens(text: str) -> int:
-    tokens = len(text) * 0.8
-    return tokens
 
 def print_output(result):
     print(f"\n检索完成，检索用时：{result['search_time']} s，重写查询生成用时：{result['rewriten_generate_time']} s，增强生成用时：{result['out_generate_time']} s \n\n{result['answer']}")
@@ -29,11 +23,24 @@ def print_output(result):
 def main():
     # 加载配置
     config_manager = ConfigLoader()
+
+    # # 支持自定义token估计方法
+    # from MedicalRag.rag.utils import register_estimate_function
+    # # 1) 注册自己的函数
+    # @register_estimate_function("self_fun")
+    # def estimate_tokens(text: str) -> int:
+    #     """ 示例：简单的线性关系 你需要自己实现根据传入的自然语言来估计可能会被模型编码的token数量"""
+    #     tokens = len(text) * 0.8  # 
+    #     return tokens
+    # # 2) 修改配置文件（已有默认实现：avg、tiktoken）
+    # config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
+    
     # 创建基础RAG系统
-    config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
     rag = MultiDialogueRag(config_manager.config)
-    query = "我有点肚子痛，该怎么办？" # 在传统中医中，蜣螂及其粪球"转丸"被用于治疗哪些疾病，具体有哪些药用价值？
+    query = "我有点肚子痛，该怎么办？"
     session_id = "U123"
+    
+    
     while True:
         query = input()
         result = rag.answer(query, session_id=session_id, return_document=True)

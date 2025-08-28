@@ -12,13 +12,14 @@
 - [x] 多向量多嵌入模型混合检索
 - [x] 基础RAG单轮问答
 - [x] RAG评测
-- [ ] RAG多轮问答
+- [x] RAG多轮问答
   - [x] 基础多轮
   - [x] 摘要生成
-  - [ ] token预测
+  - [x] token预测
     - [x] 平均值预测方法
-    - [ ] tiktoken预测方法
-  - [ ] 动态长度提示词
+    - [x] tiktoken预测方法
+    - [x] 预留自定义注册插件
+  - [x] 动态长度提示词
 - [ ] 网络检索等复杂工具定义
 - [ ] RAG智能体多轮问答
 ---
@@ -55,6 +56,8 @@ medical-rag/
 │   ├── rag/                 # RAG核心
 │   │   ├── RagBase.py       # RAG实现的基类
 │   │   ├── RagEvaluate.py   # RAG评测的基类与实现类
+│   │   ├── utils.py         # 工具类
+│   │   ├── MultiDialogueRag.py   # 多轮对话实现类
 │   │   └── SimpleRag.py     # 基础RAG实现
 │   ├── prompts/             # 提示词管理
 │   │   └── templates.py     # 提示词模板
@@ -155,6 +158,16 @@ data:
   document_field: answer     # 答案字段
   default_source: qa
   default_source_name: huatuo_qa
+
+# 多轮对话配置
+multi_dialogue_rag: 
+  estimate_token_fun: avg  # 默认token估计方式
+  llm_max_token: 1024  # 大模型最长token数量
+  cut_dialogue_scale: 2   # 预估达到最长token时的裁切比例，2表时裁切一半的历史对话生成摘要
+  max_token_threshold: 1.01   # 最长token的缓冲值 > 1 表示宽松策略，<1 表示严格策略
+  smith_debug: false  # 是否使用 Langsmith 进行debug查看
+  console_debug: true  # 是否启用控制台日志查看
+  thinking_in_context: false  # 是否将思考内容加入上下文历史对话
 ```
 
 ### 3. 快速使用
@@ -258,6 +271,23 @@ python 05_eval_rag.py
 python 06_muti_dialogue_rag
 ```
 然后输入你的问题即可
+
+同时多轮对话支持自定义token估计，估计越准确，上下文内容越准确，已支持 `avg历史token平均估计` 和 `tiktoken库估计` 。
+
+```python
+# 支持自定义token估计方法
+from MedicalRag.rag.utils import register_estimate_function
+# 1) 注册自己的函数
+@register_estimate_function("self_fun")
+def estimate_tokens(text: str) -> int:
+    """ 示例：简单的线性关系 你需要自己实现根据传入的自然语言来估计可能会被模型编码的token数量"""
+    tokens = len(text) * 0.8  # 
+    return tokens
+# 2) 修改配置文件（已有默认实现：avg、tiktoken）
+config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
+# 3) 传入配置，开始问答
+rag = MultiDialogueRag(config_manager.config)
+```
 
 ## ⚙️ 高级配置
 
