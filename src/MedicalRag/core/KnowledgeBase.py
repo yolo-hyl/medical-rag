@@ -207,7 +207,7 @@ class MedicalHybridKnowledgeBase:
                 doc.metadata["summary_dense"] = self.EMBEDDERS["summary_dense"].embed_documents([summary])[0]
                 
             if len(doc.metadata.get("text_dense", [])) == 0:
-                doc.metadata["text_dense"] = self.EMBEDDERS["text_dense"].embed_documents([summary])[0]
+                doc.metadata["text_dense"] = self.EMBEDDERS["text_dense"].embed_documents([text])[0]
             
             tokenizer_docs.append(text)  # 需要进行稀疏向量编码的text字段
             doc_dict = deepcopy(doc.metadata)
@@ -342,41 +342,4 @@ class MedicalHybridKnowledgeBase:
             )
             
         return results
-
-    def make_hybrid_search_tool(self):
-        """
-        返回一个 LangChain StructuredTool。外层可把它 bind 给 Agent。
-        """
-        def _tool(req: SearchRequest) -> list:
-            assert len(req.requests) != 0
-
-            if len(req.requests) == 1:
-                # 只有一个请求搜索，走普通的search
-                output = self._search(
-                    req.query, 
-                    req.requests[0], 
-                    req.collection_name, 
-                    req.output_fields
-                )
-            else:
-                # 有多个请求搜索，走混合search
-                output = self._hybrid_search(req)
-
-            results = []
-            for r in output:
-                results.append(
-                    Document(
-                        page_content=output["text"], 
-                        metadata=r
-                    )
-                )
-            return results
-
-        # 用 StructuredTool 暴露给 Agent（让LLM能“看见”Schema）
-        return StructuredTool.from_function(
-            name="hybrid_search",
-            func=_tool,
-            args_schema=SearchRequest,
-            description="对 Milvus 进行多向量/稀疏/过滤的混合检索，并按RRF或加权融合返回文档"
-        )
     
