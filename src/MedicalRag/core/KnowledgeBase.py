@@ -325,19 +325,20 @@ class MedicalHybridKnowledgeBase:
         results = []  
         
         for i in range(len(outputs)): # 封装获得 List[Document]
+            item = outputs[i]
             results.append(
                 Document(
-                    page_content=outputs[i]["entity"]["text"], 
+                    page_content=item.get("text", ""),
                     metadata={
-                        "pk": outputs[i]["pk"],
-                        "distance": outputs[i]["distance"],
-                        "chunk_id": outputs[i]["entity"]["chunk_id"],
-                        "summary": outputs[i]["entity"]["summary"],
-                        "document": outputs[i]["entity"]["document"],
-                        "source": outputs[i]["entity"]["source"],
-                        "source_name": outputs[i]["entity"]["source_name"],
-                        "lt_doc_id": outputs[i]["entity"]["lt_doc_id"],
-                    }
+                        "pk": item.get("pk", ""),
+                        "distance": item.get("distance", 99999),
+                        "chunk_id": item.get("chunk_id", -1),
+                        "summary": item.get("summary", ""),
+                        "document": item.get("document", ""),
+                        "source": item.get("source", ""),
+                        "source_name": item.get("source_name", ""),
+                        "lt_doc_id": item.get("lt_doc_id", ""),
+                    },
                 )
             )
             

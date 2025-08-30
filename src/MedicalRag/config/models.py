@@ -86,6 +86,22 @@ class MultiDialogueRagConfig(BaseModel):
     thinking_in_context: bool = False
 
 # =============================================================================
+# Agent对话配置
+# =============================================================================
+class AgentConfig(BaseModel):
+    """ 多轮对话关键配置 """
+    # analysis 模式会拆解子目标分开多次检索，并验证是否符合事实,不符合事实需要重写检索
+    # normal 模式下不会拆分子目标,只会重写查询后进行检索
+    # fast 模式下重写查询检索后即返回,不进行验证事实
+    mode: Literal["analysis", "fast", "normal"] = "analysis"
+    max_attempts: int = 3  # 重复验证事实最大次数
+    network_search_enabled: bool = True  # 是否启用联网搜索
+    network_search_cnt: int = 10  # 开启联网搜索时，返回的数量
+    auto_search_param: bool = True  # 是否开启确定搜索参数
+    
+
+
+# =============================================================================
 # 更新主配置类
 # =============================================================================
 class AppConfig(BaseModel):
@@ -95,6 +111,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig
     data: DataConfig
     multi_dialogue_rag: MultiDialogueRagConfig
+    agent: AgentConfig
     
 # =============================================================================
 # 检索时需要传入的数据模型
@@ -113,21 +130,21 @@ OutputFields = Literal[
 ]
 
 class FusionSpec(BaseModel):
-    method: Literal["rrf","weighted"] = "rrf"
-    k: Optional[int] = Field(default=60, gt=0, le=200)  # RRF常用k=60
-    weights: Optional[List] = [0.3, 0.4, 0.3]
+    method: Literal["rrf","weighted"] = Field("rrf", description="向量融合策略")
+    k: Optional[int] = Field(default=60, gt=0, le=200, description="如果使用rrf融合策略,那么这个k值会影响结果")  # RRF常用k=60
+    weights: Optional[List] = Field([0.3, 0.4, 0.3], description="如果使用weighted融合策略,那么这个weights会影响结果")
 
 class SingleSearchRequest(BaseModel):
-    anns_field: AnnsField = "summary_dense"
-    metric_type: Literal["COSINE","IP"] = "COSINE"
-    search_params: dict = {"ef": 64}
-    limit: int = Field(default=50, gt=0, le=500)
-    expr: Optional[str] = "" 
+    anns_field: AnnsField = Field("summary_dense", description="向量检索字段")
+    metric_type: Literal["COSINE","IP"] = Field("COSINE", description="向量距离计算指标,除了稀疏向量,其余都用'COSINE'")
+    search_params: dict = Field({"ef": 64}, description="如果是稀疏向量检索,那么应该指定drop_ratio_search,值为float,例如0.0,否则指定参数ef,值为int")
+    limit: int = Field(default=50, gt=0, le=500, description="限制这个向量检索字段返回的多少条数据")
+    expr: Optional[str] = Field("", description="过滤不符合这个表达式的数据,例如当需要筛选数据源时,填入:'source == qa',一般不需要更改,除非用户指定")
 
 class SearchRequest(BaseModel):
-    query: str
-    collection_name: str
-    requests: List[SingleSearchRequest] = Field(default_factory=lambda: [SingleSearchRequest])
-    output_fields: List[OutputFields] = Field(default_factory=lambda: ["text","summary","document"])
-    fuse: Optional[FusionSpec] = Field(default_factory=FusionSpec)
-    limit: int = Field(default=10, gt=0, le=500)
+    query: str = Field("", description="查询文本")
+    collection_name: str = Field(default="medical_knowledge", description="查询的collection,默认为'medical_knowledge'")
+    requests: List[SingleSearchRequest] = Field(default_factory=lambda: [SingleSearchRequest()], description="多路向量查询的检索配置")
+    output_fields: List[OutputFields] = Field(default_factory=lambda: ["text","summary","document"], description="最后输出的参考文档字段;text是由summary和document组合而来")
+    fuse: Optional[FusionSpec] = Field(default_factory=FusionSpec, description="向量融合策略")
+    limit: int = Field(default=5, gt=0, le=10, description="经过融合排序之后,最终返回的数据量大小,请不要大于10篇")

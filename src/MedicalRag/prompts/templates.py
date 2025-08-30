@@ -100,6 +100,50 @@ ANNOTATION_USER_PROMPT = """请对以下医疗问答进行分类标注：
 ```"""
 
 # =============================================================================
+# 调用向量数据库查询模板
+# =============================================================================
+CALLING_DB_SYSTEM_PROMPT = """你是一个智能体，请根据输入查询和上下文，使用独立、自洽、便于进行单次且明确的向量检索查询文本，选择合适的检索参数，调用向量数据库进行查询。"""
+
+CALLING_DB_USER_PROMPT = """用户查询：{query}"""
+
+
+# =============================================================================
+# 检索router模板
+# =============================================================================
+WEB_SEARCH_JUDGE_SYSTEM_PROMPT = """你是一个智能助手。\n请根据输入信息，判断所需信息是否完整，是否需要进行网络搜索。
+如果没有必要，则need_search为false；
+如果有必要，则思考缺失信息，输出need_search为true，
+给出便于网络检索的`search_query`，并输出需保留文档的索引（1~N）。
+数据格式\n
+{format_instructions}
+"""
+
+WEB_SEARCH_JUDGE_USER_PROMPT = """# 用户查询\n{query}\n\n# 检索到的文档\n{docs}\n\n# 输出示例\n
+{{'need_search': true, 'search_query': '阿司匹林的副作用', 'remain_doc_index': [1, 3, 4]}}\n
+{{'need_search': false, 'search_query': '', 'remain_doc_index': []}}"""
+
+
+# =============================================================================
+# 网络检索工具调用模板
+# =============================================================================
+CALLING_WEB_SEARCH_SYSTEM_PROMPT = """你是一个可以调用工具的智能体，请根据输入的搜索查询调用网络搜索工具。"""
+
+CALLING_WEB_SEARCH_USER_PROMPT = """请对以下查询进行网络搜索：{search_query}"""
+
+
+# =============================================================================
+# 评判模板
+# =============================================================================
+JUDGE_RAG_SYSTEM_PROMPT = """根据文档内容和用户查询，你需要判断模型摘要是否遵循了事实，模型摘要是否脱离了文档内容，可能存在编造或推测。仅输出Y或N"""
+
+JUDGE_RAG_USER_PROMPT = """# 文档内容:\n\n{format_document_str}\n
+# 用户查询:\n\n{query}\n
+# 模型摘要:\n\n{summary}\n
+# 输出示例:\n\n
+# N\n\n# 输出:\n\n"""
+
+
+# =============================================================================
 # 模板注册表
 # =============================================================================
 PROMPT_TEMPLATES = {
@@ -122,6 +166,26 @@ PROMPT_TEMPLATES = {
     "summary": {
         "system": SUMMARY_SYSTEM_PROMPT,
         "user": SUMMARY_USER_PROMPT
+    },
+
+    "call_db": {
+        "system": CALLING_DB_SYSTEM_PROMPT,
+        "user": CALLING_DB_USER_PROMPT
+    },
+
+    "web_router": {
+        "system": WEB_SEARCH_JUDGE_SYSTEM_PROMPT,
+        "user": WEB_SEARCH_JUDGE_USER_PROMPT
+    },
+    
+    "call_web": {
+        "system": CALLING_WEB_SEARCH_SYSTEM_PROMPT,
+        "user": CALLING_WEB_SEARCH_USER_PROMPT
+    },
+    
+    "judge_rag": {
+        "system": JUDGE_RAG_SYSTEM_PROMPT,
+        "user": JUDGE_RAG_USER_PROMPT
     },
     
     # 数据标注

@@ -49,3 +49,10 @@ multi_dialogue_rag:
   smith_debug: false
   console_debug: true
   thinking_in_context: false
+
+agent:
+  mode: analysis
+  max_attempts: 2  # 每一个子目标查询的最大重试次数，否则进行联网搜索
+  network_search_enabled: True  # 是否启用联网搜索
+  network_search_cnt: 10  # 开启联网搜索时，返回的数量
+  auto_search_param: True  # 是否开启确定搜索参数

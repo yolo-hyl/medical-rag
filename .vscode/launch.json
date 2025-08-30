@@ -54,5 +54,13 @@
             "console": "integratedTerminal",
             "justMyCode": false
         },
+        {
+            "name": "单轮检索Agent",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/07_single_dialogue_agent.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
     ]
 }
