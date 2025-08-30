@@ -1,6 +1,6 @@
 # Medical RAG - 医疗智能问答系统
 
-基于 LangChain + Milvus 的专业医疗领域RAG(检索增强生成)系统，支持多向量混合检索和智能问答。
+基于 LangChain 0.3.27 + Milvus 2.6.x + LangSmith + langgraph 0.6.6 的专业医疗领域RAG(检索增强生成)系统，支持多向量混合检索和智能问答。
 使用约定数据格式，可无缝迁移到其他领域，例如：法学、金融
 
 ## TODO LIST
