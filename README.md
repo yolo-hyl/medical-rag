@@ -20,8 +20,9 @@
     - [x] tiktoken预测方法
     - [x] 预留自定义注册插件
   - [x] 动态长度提示词
-- [ ] 网络检索等复杂工具定义
-- [ ] RAG智能体多轮问答
+- [x] 网络检索等复杂工具定义
+- [x] RAG智能体单轮问答
+- [ ] 智能问讯、检索、诊断 
 ---
 
 ## 🌟 项目亮点
@@ -61,8 +62,13 @@ medical-rag/
 │   │   └── SimpleRag.py     # 基础RAG实现
 │   ├── prompts/             # 提示词管理
 │   │   └── templates.py     # 提示词模板
-│   └── tools/               # 工具集
-│       └── search.py        # 搜索工具
+│   └── agent/               # 智能体实现
+│   │   ├── tools/           # 工具包
+│   │   │     ├── AgentTools.py   # 工具类
+│   │   │     └── TencentSearch.py   # 腾讯云网络检索器
+│   │   ├── AgentBase.py     # 智能体基类
+│   │   ├── RagAgent.py      # 多轮问讯完全智能体
+│   └── └── SearchGraph.py   # 单轮对话智能体
 ├── scripts/                 # 使用脚本
 ├── Milvus/                  # Milvus客户端启动相关
 └── .vscode/                 # vscode快捷运行配置
@@ -168,6 +174,13 @@ multi_dialogue_rag:
   smith_debug: false  # 是否使用 Langsmith 进行debug查看
   console_debug: true  # 是否启用控制台日志查看
   thinking_in_context: false  # 是否将思考内容加入上下文历史对话
+
+agent:  # 智能体会沿用上述多轮对话rag的配置
+  mode: analysis
+  max_attempts: 2  # 每一个子目标查询的最大重试次数，否则进行联网搜索
+  network_search_enabled: True  # 是否启用联网搜索
+  network_search_cnt: 10  # 开启联网搜索时，返回的数量
+  auto_search_param: True  # 是否开启确定搜索参数
 ```
 
 ### 3. 快速使用
@@ -287,6 +300,16 @@ def estimate_tokens(text: str) -> int:
 config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
 # 3) 传入配置，开始问答
 rag = MultiDialogueRag(config_manager.config)
+```
+
+#### 8. 单轮RAG问答智能体
+
+使用这个示例时，需要有一个能力较强的大模型，充当智能体调用工具的角色，所以需要修改这个脚本，传入`ChatModel`
+
+推荐使用 `qwen-plus` 在这个智能体中：检索参数、检索内容、是否符合文档事实、是否需要进行网络检索 全部由智能体自己确定，用户只需要定义想要问讯的问题即可回答。
+
+```bash
+python 07_single_dialogue_agent.py
 ```
 
 ## ⚙️ 高级配置
