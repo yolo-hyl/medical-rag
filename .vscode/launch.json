@@ -62,5 +62,13 @@
             "console": "integratedTerminal",
             "justMyCode": false
         },
+        {
+            "name": "Medical-Agent",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/08_medical_agent.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
     ]
 }

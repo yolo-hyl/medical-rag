@@ -3,35 +3,15 @@
 基于 LangChain 0.3.27 + Milvus 2.6.x + LangSmith + langgraph 0.6.6 的专业医疗领域RAG(检索增强生成)系统，支持多向量混合检索和智能问答。
 使用约定数据格式，可无缝迁移到其他领域，例如：法学、金融
 
-## TODO LIST
-- [x] 自定义构建领域词表
-- [x] QA数据一键入库
-- [ ] 文献数据一键入库
-- [x] 自定义普通检索
-- [x] 自定义混合检索
-- [x] 多向量多嵌入模型混合检索
-- [x] 基础RAG单轮问答
-- [x] RAG评测
-- [x] RAG多轮问答
-  - [x] 基础多轮
-  - [x] 摘要生成
-  - [x] token预测
-    - [x] 平均值预测方法
-    - [x] tiktoken预测方法
-    - [x] 预留自定义注册插件
-  - [x] 动态长度提示词
-- [x] 网络检索等复杂工具定义
-- [x] RAG智能体单轮问答
-- [ ] 智能问讯、检索、诊断 
----
 
 ## 🌟 项目亮点
 
 - **专业医疗领域优化**：支持领域稀疏向量计算，可直接通过配置完成领域词表管理；也可以使用原生的Milvus进行稀疏向量管理
 - **多向量混合检索**：稠密向量 + 稀疏向量(BM25) 的混合检索策略
 - **灵活的架构设计**：支持一键配置多种LLM提供商（OpenAI、Ollama）和嵌入模型
-- **完整的数据流水线**：从数据预处理、入库到检索问答的端到端解决方案
+- **完整的数据流水线**：从数据预处理、入库到检索问答、以及评估的端到端解决方案
 - **RAG智能体**：自动确定检索内容、检索参数、自动确定是否符合文档事实、自动确定是否开启网络检索，将检索功能全部交由智能体托管，一站式定义查询即可得到你想要的答案！
+- **更丰富的工程细节**：自带token估计、摘要提取、检索文档动态整合等重要特性，在多轮对话性能强悍。
 
 ## 🏗️ 项目主要架构
 
@@ -47,6 +27,7 @@ medical-rag/
 │   │   ├── KnowledgeBase.py # 多向量知识库
 │   │   ├── HybridRetriever.py # 混合检索器
 │   │   ├── insert.py        # Milvus入库工具类
+│   │   ├── DBFactory.py     # 知识库工厂，并行检索时保证单例客户端的线程安全
 │   │   └── IngestionPipeline.py # 数据入库流水线
 │   ├── embed/               # 嵌入相关
 │   │   ├── vocab/           # 领域词表默认保存目录
@@ -66,8 +47,9 @@ medical-rag/
 │   │   ├── tools/           # 工具包
 │   │   │     ├── AgentTools.py   # 工具类
 │   │   │     └── TencentSearch.py   # 腾讯云网络检索器
+│   │   ├── utils.py  # 工具函数
 │   │   ├── AgentBase.py     # 智能体基类
-│   │   ├── RagAgent.py      # 多轮问讯完全智能体
+│   │   ├── MedicalAgent.py  # 多轮问讯智能体
 │   └── └── SearchGraph.py   # 单轮对话智能体
 ├── scripts/                 # 使用脚本
 ├── Milvus/                  # Milvus客户端启动相关
@@ -302,14 +284,26 @@ config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
 rag = MultiDialogueRag(config_manager.config)
 ```
 
-#### 8. 单轮RAG问答智能体
+#### 8. 检索智能体
 
 使用这个示例时，需要有一个能力较强的大模型，充当智能体调用工具的角色，所以需要修改这个脚本，传入`ChatModel`
 
 推荐使用 `qwen-plus` 在这个智能体中：检索参数、检索内容、是否符合文档事实、是否需要进行网络检索 全部由智能体自己确定，用户只需要定义想要问讯的问题即可回答。
 
+<img src="img/SearchAgent.png" alt="我的头像" width="233" height="350">
+
 ```bash
 python 07_single_dialogue_agent.py
+```
+
+#### 9. 问答智能体
+
+问答智能体依赖单轮RAG问答智能体，检索时使用的是其子图。推荐传入更强大的模型作为调度器。
+
+<img src="img/RagAgent.png" alt="我的头像" width="471" height="500">
+
+```bash
+python 08_medical_agent.py
 ```
 
 ## ⚙️ 高级配置

@@ -11,14 +11,13 @@ import operator as op
 from langchain.tools import tool
 import json
 import logging
+from ...core.DBFactory import get_kb
 
 logger = logging.getLogger(__name__)
-
 
 class AgentTools:
     def __init__(self, app_config: AppConfig) -> None:
         self.app_config = app_config
-        self.kb = MedicalHybridKnowledgeBase(self.app_config)
         self.WEBSEARCH_FUNC = None
         
     def register_websearch(self, func):
@@ -43,7 +42,7 @@ class AgentTools:
         @tool("database_search")
         def database_search(search_config: SearchRequest) -> str:
             """ 输入检索参数,使用向量数据库进行本地检索 """
-            results = self.kb.search(req=search_config)
+            results = get_kb(self.app_config.model_dump()).search(req=search_config)
             return json.dumps([d.model_dump() for d in results], ensure_ascii=False)
         
         return database_search
