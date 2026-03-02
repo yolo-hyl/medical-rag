@@ -64,16 +64,20 @@ medical-rag/
 [huatuo-qa](https://www.huatuogpt.cn/) 数据集
 也可以使用本项目提供的由 `huatuo-qa` 采样而来的数据集用作示例，详见 `data` 目录
 
-#### 使用conda环境
+#### 使用conda环境构建
 ```bash
 git clone https://github.com/yolo-hyl/medical-rag
+sudo apt install git-lfs  # 如果没有安装lfs 
+git lfs pull  # 拉取大文件数据集
 cd medical-rag
-conda env create -f environment.yml
+conda env create -f environment.yml  # 创建虚拟环境
 ```
 
 #### 安装本项目
 ```bash
+conda activate rag
 cd src
+python -m pip install --no-build-isolation pkuseg  # 安装依赖包
 pip install -e .
 ```
 

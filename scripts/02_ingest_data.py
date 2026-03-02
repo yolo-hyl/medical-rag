@@ -1,10 +1,7 @@
 import logging
-from pathlib import Path
-import json
 from datasets import load_dataset
 from MedicalRag.config.loader import ConfigLoader
 from MedicalRag.core.IngestionPipeline import IngestionPipeline
-import traceback
 from datasets import load_dataset
 
 logging.basicConfig(level=logging.INFO)

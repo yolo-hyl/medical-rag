@@ -21,7 +21,7 @@ class DenseConfig(BaseModel):
     provider: Literal['openai', 'ollama'] = 'ollama'
     model: str
     base_url: Optional[str] = None
-    api_key: Optional[str] = None
+    env_key_name: Optional[str] = None
     proxy: Optional[str] = None
     dimension: int = 1024
 
@@ -48,7 +48,7 @@ class LLMConfig(BaseModel):
     provider: Literal['openai', 'ollama'] = 'ollama'
     model: str
     base_url: Optional[str] = None
-    api_key: Optional[str] = None
+    env_key_name: Optional[str] = None
     proxy: Optional[str] = None
     temperature: float = 0.1
     max_tokens: Optional[int] = None

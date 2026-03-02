@@ -117,14 +117,16 @@ class SimpleRAG(BasicRAG):
             }
         except Exception as e:
             logger.error(f"RAG处理失败: {e}")
-            print(traceback(e))
+            print(traceback.format_exc())
             error_msg = "抱歉，处理您的问题时出现错误，请稍后再试。"
             if return_document:
                 return {
                     "answer": error_msg,
-                    "documents": []
+                    "documents": [],
+                    "search_time": 0,
+                    "generation_time": 0
                 }
-            return {"answer": error_msg}
+            return {"answer": error_msg, "search_time": 0, "generation_time": 0}
 
     def update_search_config(self, search_config: SearchRequest):
         """更新检索配置并重建链"""

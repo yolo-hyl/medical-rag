@@ -1,23 +1,16 @@
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_core.vectorstores import VectorStore
-from langchain_milvus import Milvus, BM25BuiltInFunction
-from langchain_openai import OpenAIEmbeddings
-from langchain_ollama import OllamaEmbeddings
 from tqdm import tqdm
 from ..config.models import *
-from .utils import create_embedding_client, create_llm_client
-import hashlib
-from pymilvus import MilvusClient, DataType, Collection, connections, FunctionType, Function, AnnSearchRequest, RRFRanker, WeightedRanker
-from functools import lru_cache
+from .utils import create_embedding_client
+from pymilvus import MilvusClient, DataType, FunctionType, Function, AnnSearchRequest, RRFRanker, WeightedRanker
 from pathlib import Path
 from ..config.models import AppConfig
 from ..embed.sparse import Vocabulary, BM25Vectorizer
 from .insert import insert_rows
 from copy import deepcopy
-from langchain_core.tools import StructuredTool
 from ..embed.bm25 import BM25SparseEmbedding
 
 get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
@@ -192,6 +185,14 @@ class MedicalHybridKnowledgeBase:
         )
         self.client.load_collection(self.milvus_config.collection_name)
     
+    @staticmethod
+    def _to_text(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return str(value)
+    
     def add_documents(self, documents: List[Document]) -> List[str]:
         """添加文档，自动处理多向量字段"""
         tokenizer_docs = []
@@ -199,8 +200,10 @@ class MedicalHybridKnowledgeBase:
         rows = []
         for doc in documents:
             # 提取问题和答案
-            summary = doc.metadata.get("summary", "")
-            text = doc.page_content
+            summary = self._to_text(doc.metadata.get("summary", ""))
+            text = self._to_text(doc.page_content)
+            doc.metadata["summary"] = summary
+            doc.metadata["text"] = text
             
             # 上线这里要删掉
             if len(doc.metadata.get("summary_dense", [])) == 0:
@@ -218,7 +221,7 @@ class MedicalHybridKnowledgeBase:
             filtered["text"] = text
             if self.embedding_config.text_sparse.provider == "self":
                 # 如果自管理词表，则还需要进行稀疏向量的构建
-                filtered["text_sparse"] = self.EMBEDDERS["text_sparse"].embed_documents([summary])[0]
+                filtered["text_sparse"] = self.EMBEDDERS["text_sparse"].embed_documents([text])[0]
             rows.append(filtered)
                 
         insert_rows(

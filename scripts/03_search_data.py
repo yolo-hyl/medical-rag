@@ -20,7 +20,7 @@ def main():
         collection_name=config_manager.config.milvus.collection_name,
         requests=[ssr],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
-        limit=20
+        limit=10
     )
     result = kb.search(req=sr1)
     print(result[0] if len(result) != 0 else "没有找到数据")
@@ -47,7 +47,7 @@ def main():
         collection_name=config_manager.config.milvus.collection_name,
         requests=[ssr1, ssr2],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
-        limit=20
+        limit=10
     )
     result = kb.search(req=sr2)
     print(result[0] if len(result) != 0 else "没有找到数据")
@@ -78,7 +78,7 @@ def main():
         requests=[ssr1, ssr2],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
         fuse=fuse,
-        limit=20
+        limit=10
     )
     result = kb.search(req=sr3)
     print(result[0] if len(result) != 0 else "没有找到数据")

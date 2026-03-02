@@ -2,12 +2,20 @@ import math
 from typing import List, Dict, Iterable, Iterator
 import pkuseg
 from multiprocessing import Pool, cpu_count
-import os, gzip, pickle, math
+import os, gzip, pickle
 from pathlib import Path
 from stopwords import stopwords, filter_stopwords
 
 current_dir = Path(__file__).resolve().parent
-default_vocab_dir = str(current_dir) + "/vocab/"
+default_vocab_dir = current_dir / "vocab"
+
+
+def _resolve_vocab_path(path_or_name: str) -> Path:
+    """
+    传文件名时默认落到 embed/vocab/；传包含目录的路径时按原样使用。
+    """
+    path = Path(path_or_name)
+    return (default_vocab_dir / path) if path.parent == Path(".") else path
 
 # ====== worker 全局 ======
 _SEG = None  # 每个子进程里各自持有一个分词器
@@ -78,25 +86,22 @@ class Vocabulary:
             "idf_arr": self.idf_arr,
         }
         data = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
-        
-        if '/' not in path:  # 没有自定义绝对路径 , 自动保存在当前目录下的vocab文件夹
-            tmp = str(default_vocab_dir) + path + ".tmp"
-            path = str(default_vocab_dir) + path
-        else:
-            tmp = path + ".tmp"
-            
+
+        target = _resolve_vocab_path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+
         with (gzip.open(tmp, "wb") if compress else open(tmp, "wb")) as f:
             f.write(data)
-        os.replace(tmp, path)  # 原子替换，防止中途写坏
+        os.replace(tmp, target)  # 原子替换，防止中途写坏
 
     @classmethod
     def load(cls, path_or_name: str):
         try:
-            if '/' not in path_or_name:  # 直接传入的名字
-                path = str(default_vocab_dir) + "/" + path_or_name
-            if not Path(path).exists:
+            path = _resolve_vocab_path(path_or_name)
+            if not path.exists():
                 return None
-            with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as f:
+            with (gzip.open(path, "rb") if path.suffix == ".gz" else open(path, "rb")) as f:
                 state = pickle.load(f)
             v = cls()
             v.token2id = state["token2id"]
