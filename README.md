@@ -104,6 +104,18 @@ ollama pull qwen3:32b          # 对话模型
 ```
 更多配置详见 [Ollama](https://ollama.com/)
 
+**使用openai风格的api服务**
+
+也可以不使用ollama，使用api_key去访问web服务，针对没有本地算力的场景，不推荐将api_key直接明文写入项目中，强烈推荐使用环境变量的方式进行读取。
+```bash
+# 编辑环境变量配置文件
+vim ~/.bashrc
+
+# 输入api
+export DASHSCOPE_API_KEY = "xxxxx"
+```
+记住上面的环境变量名，后续配置需要提供。
+
 ### 2. 配置及向量库说明
 
 编辑 `src/MedicalRag/config/app_config.yaml`可修改默认配置，也可在引入config时动态修改部分配置：
@@ -119,12 +131,13 @@ milvus:
 
 # 嵌入模型配置（支持多向量字段）
 embedding:
-  summary_dense:      # 问题向量（稠密）
-    provider: ollama
-    model: bge-m3:latest
-    base_url: http://localhost:11434
-    dimension: 1024
-  text_dense:         # 文本向量（稠密）
+  summary_dense:      # 问题/摘要 向量（稠密）
+    provider: ollama  # 可选openai接口 或者 ollama库接口
+    model: bge-m3:latest  # 模型名称
+    env_key_name: DASHSCOPE_API_KEY  # 可选的api_key的环境变量名，否则默认使用`openai_ky`
+    base_url: http://localhost:11434  # 请求接口
+    dimension: 1024  # 编码的向量维度
+  text_dense:         # 主文本向量（稠密）
     provider: ollama  
     model: bge-m3:latest
     base_url: http://localhost:11434
@@ -137,7 +150,7 @@ embedding:
     k1: 1.5
     b: 0.75
 
-# 大语言模型配置  
+# 大语言模型配置，与嵌入模型配置类似，对于请求模型有相同的字段
 llm:
   provider: ollama
   model: qwen3:32b
