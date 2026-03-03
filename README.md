@@ -104,7 +104,7 @@ ollama pull qwen3:32b          # 对话模型
 ```
 更多配置详见 [Ollama](https://ollama.com/)
 
-**使用openai风格的api服务**
+**配置环境变量**
 
 也可以不使用ollama，使用api_key去访问web服务，针对没有本地算力的场景，不推荐将api_key直接明文写入项目中，强烈推荐使用环境变量的方式进行读取。
 ```bash
@@ -115,6 +115,11 @@ vim ~/.bashrc
 export DASHSCOPE_API_KEY = "xxxxx"
 ```
 记住上面的环境变量名，后续配置需要提供。
+
+总而言之，你需要配置三个环境变量：
+1. llm或者embedding服务的环境变量（如需，如果使用ollama则不需要配置）
+2. langchain的api key，用于检测服务（也是可选）
+3. 腾讯云服务的id和key（网络搜索需要用）
 
 ### 2. 配置及向量库说明
 
@@ -306,6 +311,8 @@ rag = MultiDialogueRag(config_manager.config)
 使用这个示例时，需要有一个能力较强的大模型，充当智能体调用工具的角色，所以需要修改这个脚本，传入`ChatModel`
 
 推荐使用 `qwen-plus` 在这个智能体中：检索参数、检索内容、是否符合文档事实、是否需要进行网络检索 全部由智能体自己确定，用户只需要定义想要问讯的问题即可回答。
+
+注意，这里的网络检索使用了腾讯云服务，你同样需要配置腾讯云服务的 `TENCENTCLOUD_SECRET_ID` 和 `TENCENTCLOUD_SECRET_KEY` 在 `~/.bashrc` 的环境变量中。
 
 <img src="img/SearchAgent.png" alt="我的头像" width="233" height="350">
 

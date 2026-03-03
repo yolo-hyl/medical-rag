@@ -160,9 +160,11 @@ class MultiDialogueRag(BasicRAG):
     def _strip_think_get_tokens(msg: AIMessage):
         text = msg.content
         # 用于衡量大概每一个字消耗多少token
-        msg_len = len(msg.content)   
+        msg_len = len(msg.content)
         msg_token_len = msg.usage_metadata["output_tokens"]
-        dur = msg.response_metadata.get("total_duration", 0) / 1e9
+        # total_duration 是 Ollama 专有字段；OpenAI 兼容接口用 _elapsed（墙上时钟）兜底
+        dur = msg.response_metadata.get("total_duration", 0) / 1e9 or \
+              msg.response_metadata.get("_elapsed", 0)
         return {
             "msg" : re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip(),
             "msg_len": msg_len,
@@ -230,14 +232,24 @@ class MultiDialogueRag(BasicRAG):
     
     # ---------- 构建多轮 RAG 链 ----------
     def _setup_chain(self):
-        
+        import time as _time
+
+        def _timed_llm_invoke(prompt_val):
+            """在 response_metadata 中注入墙上时钟耗时，供 _strip_think_get_tokens 使用。"""
+            t0 = _time.time()
+            msg = self.llm.invoke(prompt_val)
+            msg.response_metadata["_elapsed"] = _time.time() - t0
+            return msg
+
+        timed_llm = RunnableLambda(_timed_llm_invoke)
+
         rewrite_template = ChatPromptTemplate.from_messages([
             ("system", get_prompt_template("rewriter")["system"]),
             MessagesPlaceholder("history"),
             ("human", get_prompt_template("rewriter")["user"])
         ])
         # 填充模板 -> llm生成 -> 处理think
-        rewritten_query_chain = rewrite_template | self.llm | RunnableLambda(self._strip_think_get_tokens)
+        rewritten_query_chain = rewrite_template | timed_llm | RunnableLambda(self._strip_think_get_tokens)
 
         def do_retrieve(inputs: dict):
             logger.info(f"改写后的问题: {inputs['llm_rewritten_query']['msg']}")
@@ -255,9 +267,9 @@ class MultiDialogueRag(BasicRAG):
         
 
         out_answer = (
-            RunnableLambda(do_format) 
-            | self.dialogue_rag_prompt 
-            | self.llm 
+            RunnableLambda(do_format)
+            | self.dialogue_rag_prompt
+            | timed_llm
             | RunnableLambda(self._strip_think_get_tokens)
         )
 

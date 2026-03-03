@@ -27,6 +27,7 @@ dependencies:
       - cryptography==45.0.6
       - cyclopts==3.22.5
       - cython==3.1.2
+      - dashscope==1.24.2
       - dataclasses-json==0.6.7
       - datasets==4.0.0
       - dill==0.3.8
@@ -79,6 +80,7 @@ dependencies:
       - langchain-ollama==0.3.6
       - langchain-openai==0.3.29
       - langchain-text-splitters==0.3.9
+      - langgraph==0.6.6
       - langsmith==0.4.13
       - lazy-object-proxy==1.11.0
       - markdown-it-py==3.0.0
@@ -156,6 +158,7 @@ dependencies:
       - stopwords-zh==2023.6.5.13.18.38
       - sympy==1.14.0
       - tenacity==9.1.2
+      - tencentcloud-sdk-python-wsa==3.0.1443
       - threadpoolctl==3.6.0
       - tiktoken==0.11.0
       - toml==0.10.2

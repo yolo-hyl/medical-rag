@@ -31,8 +31,15 @@ logger = logging.getLogger(__name__)
 def del_think(text):
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
-def json_to_list_document(text):
-    return [Document(**d) for d in json.loads(text)]
+def json_to_list_document(text: str) -> list:
+    if not text or not text.strip():
+        logger.warning("工具返回内容为空，跳过文档解析")
+        return []
+    try:
+        return [Document(**d) for d in json.loads(text)]
+    except json.JSONDecodeError:
+        logger.warning(f"工具返回内容非 JSON，跳过文档解析。内容片段：{text[:200]}")
+        return []
 
 def format_document_str(documents: List[Document]) -> str:
     parts = []
@@ -255,8 +262,9 @@ class SearchGraph:
         self.db_search_tool = self.agent_tools.make_database_search_tool()
         self.network_search_tool = self.agent_tools.make_web_search_tool()
         
-        self.db_search_llm = deepcopy(power_model).bind_tools([self.db_search_tool])
-        self.network_search_llm = deepcopy(power_model).bind_tools([self.network_search_tool])
+        # bind_tools() 返回新的 RunnableBinding，不修改原模型，无需 deepcopy
+        self.db_search_llm = power_model.bind_tools([self.db_search_tool])
+        self.network_search_llm = power_model.bind_tools([self.network_search_tool])
         self.llm = create_llm_client(self.config.llm)
 
         self.db_tool_node = ToolNode([self.db_search_tool])

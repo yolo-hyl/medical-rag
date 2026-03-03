@@ -185,13 +185,22 @@ EXTRACT_USER_INFO_USER_PROMPT = """# 用户当前提问
 HANDLE_QUERY_SYSTEM_PROMPT = """你是一名资深的医务人员。任务：根据历史对话、摘要、以及所掌握的用户信息，结合用户当前问题，判断是否需要拆解查询或者重写查询，使其适合检索。
 输出必须严格遵循结构：need_split(bool), sub_query(list[str]), rewrite_query(str)
 
-# 查询输出规范
-1) 每一个查询都应该是一个独立的，意图清晰的，简短的，医学专业化的句子，便于向量检索。
+# 两种模式（二选一，不可同时使用）
+## 模式A：重写（need_split=False）
+适用：用户问题口语化、模糊，但本质是单一问题，仅需改成医学专业检索词。
+→ need_split=False，rewrite_query=改写后查询，sub_query=[]
+
+## 模式B：拆分（need_split=True）
+适用：问题包含多个独立知识点，需分别检索。典型场景：
+  - 同一症状群存在2~3种可能的鉴别诊断（如腹痛+腹泻可分别考虑急性胃肠炎、食物中毒、肠易激综合征）
+  - 问题同时涉及"病因/诊断"和"治疗/用药"两个维度
+  - 涉及并发症的独立评估（如腹泻伴黄尿，黄尿可能提示胆道或肝脏问题，需单独检索）
+→ need_split=True，sub_query=[子查询1, 子查询2, ...]（最多3个），rewrite_query=""
+
+# 通用规范
+1) 每一个查询应是独立、意图清晰、简短、医学专业化的句子，便于向量检索。
 2) 不输出除指定键之外的任何内容。
-3) 如果用户问题口语化、模糊、或无法直接作为检索关键词使用，则需重写（need_split=True，填写rewrite_query）。
-4) 如果用户的问题需要多步查询核实事实（例如需要分别确认症状、检查、治疗），则need_split=True，并在sub_query中填入子查询，rewrite_query留空。
-5) 拆解查询和重写查询不会同时发生，因为重写是单次查询，拆解是多次查询。
-6) 如果用户问题本身已经清晰且适合作为检索词，则need_split=False，rewrite_query原样输出。
+3) 如果用户问题本身已清晰且适合直接检索，则 need_split=False，rewrite_query 原样输出，sub_query=[]。
 # JSON格式
 {format_instructions}
 # 前文摘要
