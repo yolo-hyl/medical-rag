@@ -11,7 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 from pydantic import BaseModel, Field
 
@@ -49,10 +49,12 @@ class MedicalAgentState(TypedDict, total=False):
     background_info: str
     ask_obj: AskMess
     multi_summary: List[str]     # 跨轮摘要，供下轮 judge_split_query 参考
+    running_summary: str         # 压缩后的历史摘要（超过8条时触发压缩）
     curr_input: str
 
     # 规划与检索
     sub_query: SplitQuery
+    rewritten_query: str         # 最终发送给检索的查询（供前端展示）
     # Annotated[..., add]：使用 operator.add 作为 reducer，
     # 让多个并行 search_one 节点的结果自动聚合到同一个列表。
     sub_query_results: Annotated[List[SearchMessagesState], add]
@@ -140,24 +142,52 @@ def extract_background_info(state: MedicalAgentState, llm: BaseChatModel) -> Med
     return state
 
 
+def check_update_background(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+    """第二轮及以后：检查用户输入是否在纠正或补充背景信息，如是则更新。"""
+    tmpl = get_prompt_template("update_background")
+    result = llm.invoke([
+        SystemMessage(content=tmpl["system"]),
+        HumanMessage(content=tmpl["user"].format(
+            background_info=state.get("background_info", ""),
+            question=state["curr_input"],
+        )),
+    ])
+    updated = re.sub(r"<think>.*?</think>\s*", "", result.content, flags=re.DOTALL).strip()
+    state["background_info"] = updated
+    return state
+
+
+def route_entry(state: MedicalAgentState) -> str:
+    """
+    START 路由：
+    - 有 background_info → 跳过追问，直接更新背景并检索
+    - 无 background_info → 进入追问流程
+    """
+    return "check_update_background" if state.get("background_info") else "ask"
+
+
 def judge_split_query(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """判断是否需要拆分成多个子查询，并给出改写后的查询。"""
     parser = PydanticOutputParser(pydantic_object=SplitQuery)
     fixing = OutputFixingParser.from_llm(parser=parser, llm=llm)
 
+    # 合并压缩摘要与近期摘要
+    running = state.get("running_summary", "")
+    recent = "\n".join(state.get("multi_summary", []))
+    summary_context = (running + "\n" + recent).strip() if running else recent
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", get_prompt_template("handle_query")["system"].format(
             format_instructions=parser.get_format_instructions()
                 .replace("{", "{{").replace("}", "}}"),
-            summary=state["multi_summary"],
+            summary=summary_context,
         )),
         MessagesPlaceholder(variable_name="dialogue_messages"),
         ("user", get_prompt_template("handle_query")["user"]),
     ])
-    asking_hist = state["asking_messages"][-1] if state["asking_messages"] else []
     ai = (prompt | llm | RunnableLambda(strip_think_get_tokens)).invoke({
         "background_info": state["background_info"],
-        "question": asking_hist[0].content if asking_hist else state["curr_input"],
+        "question": state["curr_input"],
         "dialogue_messages": state["dialogue_messages"],
     })
     patch: SplitQuery = fixing.parse(ai["msg"])
@@ -237,7 +267,18 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
         if not sub_answers:
             final_answer = "抱歉，根据提供的资料无法回答您的问题。"
         else:
+            background = state.get("background_info", "")
+            running = state.get("running_summary", "")
+            context_prefix = ""
+            if background:
+                context_prefix += f"用户背景：{background}\n"
+            if running:
+                context_prefix += f"历史摘要：{running}\n"
+
             combined_context = "\n\n".join(sub_answers)
+            if context_prefix:
+                combined_context = context_prefix + "\n" + combined_context
+
             sys_tmpl = get_prompt_template("basic_rag")["system"]
             user_tmpl = get_prompt_template("basic_rag")["user"]
             synthesis_ai = llm.invoke([
@@ -255,15 +296,40 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
     state["dialogue_messages"].append(HumanMessage(content=state["curr_input"]))
     state["dialogue_messages"].append(AIMessage(content=final_answer))
 
-    # 更新多轮摘要（保留最近 10 轮）
+    # 更新 rewritten_query 供前端展示
+    sq = state.get("sub_query")
+    if sq:
+        if sq.need_split and sq.sub_query:
+            state["rewritten_query"] = sq.sub_query[0]
+        elif sq.rewrite_query:
+            state["rewritten_query"] = sq.rewrite_query
+        else:
+            state["rewritten_query"] = state["curr_input"]
+
+    # 更新多轮摘要
     short_summary = f"问：{state['curr_input']}\n答：{final_answer[:300]}"
     state["multi_summary"].append(short_summary)
+
+    # 压缩：当 multi_summary >= 8 条时，将最旧的 4 条压缩进 running_summary
+    if len(state["multi_summary"]) >= 8:
+        old_entries = state["multi_summary"][:4]
+        summary_text = "\n".join(old_entries)
+        compressed = llm.invoke([
+            SystemMessage(content=get_prompt_template("summary")["system"]),
+            HumanMessage(content=summary_text + "\n" + get_prompt_template("summary")["user"]),
+        ])
+        compressed_text = re.sub(
+            r"<think>.*?</think>\s*", "", compressed.content, flags=re.DOTALL
+        ).strip()
+        prev = state.get("running_summary", "")
+        state["running_summary"] = (prev + "\n" + compressed_text).strip() if prev else compressed_text
+        state["multi_summary"] = state["multi_summary"][4:]
+
+    # 保留最近 10 条（压缩后通常不超过此数）
     if len(state["multi_summary"]) > 10:
         state["multi_summary"] = state["multi_summary"][-10:]
 
-    # 清空本轮的临床追问上下文，避免下一轮 ask_judge 拿到残留的背景信息
-    # 继续追问同一病情细节（multi_summary 已保留摘要供跨轮参考）
-    state["background_info"] = ""
+    # 注意：background_info 刻意保留，不清空，供下一轮 check_update_background 使用
     state["ask_obj"] = None
 
     return state
@@ -282,13 +348,19 @@ class MedicalAgent:
     def build_graph(self):
         g = StateGraph(MedicalAgentState)
 
-        g.add_node("ask",                   partial(ask_judge,               llm=self.normal_llm))
-        g.add_node("extract_ask_and_reply", partial(extract_background_info, llm=self.normal_llm))
-        g.add_node("split_query",           partial(judge_split_query,       llm=self.power_model))
-        g.add_node("search_one",            partial(search_one,              search_graph=self.search_graph))
-        g.add_node("answer",                partial(gather_answer,           llm=self.normal_llm))
+        g.add_node("ask",                    partial(ask_judge,               llm=self.normal_llm))
+        g.add_node("extract_ask_and_reply",  partial(extract_background_info, llm=self.normal_llm))
+        g.add_node("check_update_background", partial(check_update_background, llm=self.normal_llm))
+        g.add_node("split_query",            partial(judge_split_query,       llm=self.power_model))
+        g.add_node("search_one",             partial(search_one,              search_graph=self.search_graph))
+        g.add_node("answer",                 partial(gather_answer,           llm=self.normal_llm))
 
-        g.set_entry_point("ask")
+        # START → 条件路由：有背景则跳过追问
+        g.add_conditional_edges(START, route_entry, {
+            "ask": "ask",
+            "check_update_background": "check_update_background",
+        })
+
         g.add_conditional_edges(
             "ask",
             route_ask_again,
@@ -297,10 +369,10 @@ class MedicalAgent:
                 "pass": "extract_ask_and_reply",  # 信息已充分 → 继续后续处理
             },
         )
-        g.add_edge("extract_ask_and_reply", "split_query")
+        g.add_edge("extract_ask_and_reply",   "split_query")
+        g.add_edge("check_update_background", "split_query")
 
         # Send API：split_query → 并行分发多个 search_one → answer
-        # route_to_subgraphs 返回 List[Send]，LangGraph 自动并行调度
         g.add_conditional_edges("split_query", route_to_subgraphs, ["search_one"])
         g.add_edge("search_one", "answer")
         g.add_edge("answer", END)
@@ -315,6 +387,8 @@ class MedicalAgent:
             "background_info":    "",
             "ask_obj":            None,
             "multi_summary":      [],
+            "running_summary":    "",
+            "rewritten_query":    "",
             "curr_input":         "",
             "sub_query":          None,
             "sub_query_results":  [],   # 每轮 invoke 前重置，避免 add reducer 跨轮累积
