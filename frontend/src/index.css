@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+      Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 3px;
+  }
+}
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
+
+.typing-dot {
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Markdown prose styles */
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  line-height: 1.3;
+}
+.prose h1 { font-size: 1.2em; }
+.prose h2 { font-size: 1.1em; }
+.prose h3 { font-size: 1em; }
+.prose p { margin-top: 0.4em; margin-bottom: 0.4em; }
+.prose ul { list-style-type: disc; padding-left: 1.4em; margin: 0.4em 0; }
+.prose ol { list-style-type: decimal; padding-left: 1.4em; margin: 0.4em 0; }
+.prose li { margin: 0.2em 0; }
+.prose code {
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  color: #0f172a;
+}
+.prose pre {
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+.prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.82em;
+}
+.prose strong { font-weight: 600; }
+.prose em { font-style: italic; }
+.prose blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.75em;
+  color: #64748b;
+  margin: 0.5em 0;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  margin: 0.6em 0;
+}
+.prose th, .prose td {
+  border: 1px solid #e2e8f0;
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.prose th { background: #f8fafc; font-weight: 600; }
+.prose hr { border: none; border-top: 1px solid #e2e8f0; margin: 0.8em 0; }

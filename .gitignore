@@ -16,3 +16,16 @@
 **/*.pb
 log
 vocab.pkl.gz
+
+# web
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.storybook-out/
+

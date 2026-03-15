@@ -213,6 +213,20 @@ HANDLE_QUERY_USER_PROMPT = """# 基本背景信息
 
 
 # =============================================================================
+# 更新用户背景信息模板
+# =============================================================================
+UPDATE_BACKGROUND_SYSTEM_PROMPT = """你是一名医疗助手。根据用户最新输入，判断用户是否在纠正或补充之前的背景信息。
+如果是，将新信息融合进现有背景，输出更新后的背景。
+如果不是，直接原样返回现有背景。只输出背景信息文本，不要其他内容。"""
+
+UPDATE_BACKGROUND_USER_PROMPT = """现有背景信息：
+{background_info}
+
+用户最新输入：
+{question}"""
+
+
+# =============================================================================
 # 模板注册表
 # =============================================================================
 PROMPT_TEMPLATES = {
@@ -271,7 +285,12 @@ PROMPT_TEMPLATES = {
         "system": HANDLE_QUERY_SYSTEM_PROMPT,
         "user": HANDLE_QUERY_USER_PROMPT
     },
-    
+
+    "update_background": {
+        "system": UPDATE_BACKGROUND_SYSTEM_PROMPT,
+        "user": UPDATE_BACKGROUND_USER_PROMPT
+    },
+
     # 数据标注
     "medical_qa_annotation": {
         "system": ANNOTATION_SYSTEM_PROMPT,
