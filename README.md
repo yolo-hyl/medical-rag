@@ -86,7 +86,7 @@ pip install -e .
 **启动 Milvus 向量数据库**
 
 由于本项目默认可以采用稀疏向量管理，所以需要使用客户端Milvus。
-
+   
 ```bash
 # 使用项目提供的脚本
 cd Milvus
@@ -519,5 +519,6 @@ if __name__ == "__main__":
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
+测试性修改
 
 **如有问题，欢迎提交Issue或联系项目维护者！**
