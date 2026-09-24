@@ -7,3 +7,4 @@
 - 提交作者 (author) 使用仓库维护者的身份：`hy <zjl4376@gmail.com>`。
 - 提交信息不需要附加 `Co-Authored-By: Claude ...` 或 `Claude-Session: ...` 署名行。
 - Pull request 描述不需要附加 "Generated with Claude Code" 相关署名行。
+- 提交信息 (commit message) 使用中文书写。
