@@ -1,8 +1,7 @@
 import os
-from typing import Dict, List, Optional, Literal, Any, Union
+from typing import List, Optional, Literal, Any, Union
 from urllib.parse import quote
 from pydantic import BaseModel, Field
-from pydantic import BaseModel, Field, field_validator
 
 
 def read_secret(env_name: str) -> str:
@@ -44,6 +43,11 @@ class RedisConfig(BaseModel):
     port: int = 6379
     db: int = 0
     password_env: str = "REDIS_PASSWORD"
+    session_ttl: int = 7 * 24 * 3600  # 会话数据（历史 / 摘要 / Agent 状态）的存活时间，单位秒
+    # 会话锁：lock_timeout 要大于一轮对话的最长耗时（Agent 拆子查询时可能几分钟），
+    # 设上限只是为了进程崩溃后锁能自动过期；lock_wait 是请求排队等待的上限
+    lock_timeout: int = 600
+    lock_wait: int = 600
 
     def url(self) -> str:
         password = quote(read_secret(self.password_env), safe="")
@@ -134,7 +138,7 @@ class MultiDialogueRagConfig(BaseModel):
 # Agent对话配置
 # =============================================================================
 class AgentConfig(BaseModel):
-    """ 多轮对话关键配置 """
+    """ Agent 关键配置 """
     # analysis 模式会拆解子目标分开多次检索，并验证是否符合事实,不符合事实需要重写检索
     # normal 模式下不会拆分子目标,只会重写查询后进行检索
     # fast 模式下重写查询检索后即返回,不进行验证事实
@@ -143,8 +147,7 @@ class AgentConfig(BaseModel):
     network_search_enabled: bool = True  # 是否启用联网搜索
     network_search_cnt: int = 10  # 开启联网搜索时，返回的数量
     auto_search_param: bool = True  # 是否开启确定搜索参数
-    
-
+    console_debug: bool = False  # 是否打印图执行过程
 
 # =============================================================================
 # 更新主配置类

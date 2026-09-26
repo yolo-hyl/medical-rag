@@ -1,0 +1,29 @@
+# 存储与中间件连接配置：换部署环境时改这里
+# postgres / redis / neo4j 由 deploy/start.sh 启动，密码从环境变量读取（默认自动加载 deploy/.env）
+milvus:
+  uri: http://localhost:19530
+  token: null
+  collection_name: medical_knowledge
+  drop_old: true
+  auto_id: false
+
+postgres:
+  host: 127.0.0.1
+  port: 5432
+  user: medrag
+  database: medrag
+  password_env: POSTGRES_PASSWORD
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  password_env: REDIS_PASSWORD
+  session_ttl: 604800   # 会话数据保留 7 天
+  lock_timeout: 600     # 会话锁上限，要大于一轮对话的最长耗时
+  lock_wait: 600        # 同一会话的请求排队等待上限
+
+neo4j:
+  uri: bolt://127.0.0.1:7687
+  user: neo4j
+  password_env: NEO4J_PASSWORD

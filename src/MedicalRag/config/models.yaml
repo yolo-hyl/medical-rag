@@ -1,0 +1,31 @@
+# 模型配置：换模型 / 换提供商时改这里
+embedding:
+  summary_dense:
+    provider: openai
+    env_key_name: DASHSCOPE_API_KEY
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    dimension: 1024
+  text_dense:
+    provider: openai
+    env_key_name: DASHSCOPE_API_KEY
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    dimension: 1024
+  text_sparse:
+    provider: self
+    vocab_path_or_name: vocab.pkl.gz
+    algorithm: BM25
+    domain_model: medicine
+    k1: 1.5
+    b: 0.75
+    build:
+      workers: 8
+      chunksize: 64
+
+llm:
+  provider: openai
+  model: qwen3.5-plus
+  env_key_name: DASHSCOPE_API_KEY
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  temperature: 0.1
