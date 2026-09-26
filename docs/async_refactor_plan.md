@@ -1,7 +1,8 @@
 # MedicalRag 包异步化改造方案（v2.0.0-anyc）
 
 > 目标：把 `MedicalRag` 包对外暴露的能力（检索、入库、RAG 问答、Agent、标注、评测）改成原生 `async`，让任何上层调用方都能在一个事件循环里高并发地调用它。
-> 范围：只改 `src/MedicalRag` 包本身；`api/`（FastAPI 服务）只是最后用来展示的调用方，不属于这次改造的重点，最后只适配调用点。
+> 范围：只改 `src/MedicalRag` 包本身。`software/`（`run_api.py`、前端）和包内的 `MedicalRag/api/`（FastAPI 服务）只是最后用来展示的调用方，不属于这次改造的重点，最后只适配调用点。
+> 基线：`v2.0.0` @ `653819e`（已包含 `deploy/` 中间件与 `core/services.py`）。
 > 原则：**只改 IO 路径，不引入新框架，不保留同步 / 异步两份实现。**
 
 ---
@@ -21,6 +22,7 @@
 | `agent/SearchGraph.py`、`agent/MedicalAgent.py` | 每个图节点都是同步 `llm.invoke` / `tool_node.invoke`，图用 `app.invoke` |
 | `agent/tools/*` | `database_search` 同步查 Milvus；腾讯云搜索 SDK 只有同步版本 |
 | `data/annotation.py` | 逐条 `llm.invoke`，整个数据集串行标注 |
+| `core/services.py` | Milvus / PostgreSQL / Redis / Neo4j 连通性检查全部同步，并且逐个串行执行 |
 
 另外还有几个问题，异步化之后会暴露得更明显，这次一起处理：
 
@@ -57,6 +59,7 @@
 | `MedicalAgent(config, power_model)` | `answer(user_input)` | 增加 `kb=None` 参数；`async answer(...)`（内置锁） |
 | `RagasRagEvaluate` | `do_evaluate(...)` | `async do_evaluate(...)` |
 | `SimpleAnnotator` / `AnnotationPipeline` | `annotate_single`、`annotate_dataset`、`run` | 全部 `async`，按 `batch_size` 限制并发 |
+| `core/services` | `check_services(config, names)`、`check_xxx(config)` | 全部 `async`，`check_services` 并发执行各项检查 |
 
 返回值结构保持不变，上层只需要把 `x.answer(...)` 改成 `await x.answer(...)`。
 
@@ -182,6 +185,19 @@ self._session_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 - `annotate_dataset` → `async`：用 `asyncio.Semaphore(self.batch_size)` 限制并发，`asyncio.gather` 处理整个数据集，替代现在的串行循环。临时文件、最终文件的写入逻辑不变。
 - `AnnotationPipeline.run` / `run_annotation` → `async`。
 
+### 4.15 `core/services.py`
+
+每项检查换成对应驱动自带的异步客户端，都在现有依赖里：
+
+| 检查 | 改法 |
+| --- | --- |
+| `check_postgres` | `psycopg.AsyncConnection.connect(...)` |
+| `check_redis` | `redis.asyncio.Redis.from_url(...)` |
+| `check_neo4j` | `neo4j.AsyncGraphDatabase.driver(...)` |
+| `check_milvus` | `await asyncio.to_thread(...)` 包装原逻辑（2.5.14 的 `AsyncMilvusClient` 没有 `get_server_version` / `list_collections`） |
+
+`check_services` 改为用 `asyncio.gather` 并发执行，返回的 `ServiceStatus` 列表结构和"不抛异常"的约定都不变；每项的 `latency_ms` 仍然各自计时。
+
 ---
 
 ## 5. 不改的部分
@@ -197,18 +213,20 @@ self._session_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 ## 6. 依赖变更
 
-不新增依赖：`AsyncMilvusClient`、`ainvoke`、`httpx.AsyncClient` 都是现有依赖已有的能力。
+不新增依赖。用到的都是现有依赖已有的能力：`pymilvus` 的 `AsyncMilvusClient`、LangChain / LangGraph 的 `ainvoke`、`httpx.AsyncClient`、`psycopg` 的 `AsyncConnection`、`redis.asyncio`、`neo4j` 的 `AsyncGraphDatabase`。
 
 ---
 
 ## 7. 实施顺序
 
-1. **core**：`KnowledgeBase` + `insert` + `HybridRetriever` + `IngestionPipeline`，删除 `DBFactory`；用 `scripts/02`、`03` 验证入库、检索与改造前一致。
+1. **core**：`KnowledgeBase` + `insert` + `HybridRetriever` + `IngestionPipeline` + `services`，删除 `DBFactory`；用 `scripts/00`、`02`、`03` 和 `tests/test_services.py` 验证。
 2. **rag**：`RagBase` + `SimpleRag` + `MultiDialogueRag` + `RagEvaluate`；用 `scripts/04`、`05`、`06` 验证。
 3. **agent**：`AgentTools` + `SearchGraph` + `MedicalAgent`；用 `scripts/07`、`08` 验证。
 4. **data**：`annotation.py`。
 5. **scripts**：入口改为 `asyncio.run(main())`（随前面各步一起改）。
-6. **展示层（最后）**：`api/app.py` 只做调用点适配：把 `await run_sync(x.answer, ...)` 改成 `await x.answer(...)`，在 lifespan 里创建一个共享 `kb` 并注入各组件，流式接口使用包提供的会话锁。服务自身的其他逻辑（鉴权、SQLite 持久化等）不在本次改造范围内。
+6. **展示层（最后）**：只做调用点适配，服务自身的其他逻辑（鉴权、SQLite 持久化等）不在本次改造范围内。
+   - `MedicalRag/api/app.py`：把 `await run_sync(x.answer, ...)` 改成 `await x.answer(...)`，在 lifespan 里创建一个共享 `kb` 并注入各组件，流式接口使用包提供的会话锁。
+   - `software/run_api.py` 的 `preflight()`、`scripts/00_check_services.py`、`tests/test_services.py`：把 `check_services(...)` 改为 `asyncio.run(check_services(...))`。
 
 ## 8. 验证方式
 
