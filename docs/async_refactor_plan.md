@@ -176,7 +176,8 @@ class RedisSessionStore:
   | `medrag:lock:{sid}` | — | 会话锁 |
 
 - **锁**：用 redis-py 自带的 `Lock`。设置 `timeout` 是为了进程崩溃后锁能自动过期，不会把会话永久锁死；`blocking_timeout` 防止请求无限等待。
-- **配置**：`RedisConfig` 只加一个字段 `session_ttl: int = 7 * 24 * 3600`，其余沿用现有配置。
+  `timeout` 必须大于一轮对话的最长耗时，否则锁会在处理过程中过期，`release` 时抛 `LockNotOwnedError`，同一会话还可能被别的请求插进来。实测 27B 模型跑一轮 Agent 需要 140s，所以默认值取 600s 并做成可配。
+- **配置**：`RedisConfig` 新增 `session_ttl: int = 7 * 24 * 3600`、`lock_timeout: int = 600`、`lock_wait: int = 600`，其余沿用现有配置。
 - `redis.asyncio` 的连接池是懒创建的，在哪个事件循环里第一次使用就绑定在哪个 loop 上，和 `AsyncMilvusClient` 的约束一样。
 
 ### 4.3 `core/KnowledgeBase.py`（核心）
@@ -239,7 +240,7 @@ def aclient(self) -> AsyncMilvusClient:
 
 | 位置 | 改法 |
 | --- | --- |
-| `_timed_llm_invoke` | `async def`，`await self.llm.ainvoke(...)` |
+| `_timed_llm_invoke` | **删除**：用 `RunnableLambda` 包住 LLM 会切断 token 级流式（实测裸链 156 个 token 片段，包一层后 0 个）。链里直接用 `self.llm.with_config(run_name=...)`，墙上时钟耗时改由 `rag/utils.py` 的 `StageTimer`（`AsyncCallbackHandler`）在链外按 run_name 统计，每个请求一个实例，返回值字段和语义都不变。`create_llm_client` 同时加上 `stream_usage=True`，保证流式下 `usage_metadata` 仍在，摘要压缩依赖的 token 统计不受影响 |
 | `do_retrieve` | `async def`，`await self.self_retriever.ainvoke(...)` |
 | `_get_summary` | `async`，`await (summarize_prompt \| self.llm).ainvoke(...)` |
 | `_maybe_compress_history` | `async` |
@@ -280,7 +281,7 @@ async def stream(self, query, session_id="default") -> AsyncIterator[dict]:
             await self._finish(result, session_id)
 ```
 
-`stream` 原样透传 LangChain 的 `astream_events(v2)` 事件，不在包里定义新的事件格式。链中已有的 `run_name`（`rewritten_query` / `search_documents` / `generate` / `rag`）就是外部识别阶段的依据，写进 docstring。
+`stream` 原样透传 LangChain 的 `astream_events(v2)` 事件，不在包里定义新的事件格式。链中已有的 `run_name`（`rewritten_query` / `search_documents` / `generate` / `rag`）就是外部识别阶段的依据，写进 docstring。两次 LLM 调用的 `run_name` 分别是 `rewrite_llm` 和 `answer_llm`，逐 token 的输出来自它们的 `on_chat_model_stream` 事件。
 
 ### 4.11 `agent/SearchGraph.py`
 

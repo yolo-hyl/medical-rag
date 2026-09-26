@@ -1,8 +1,11 @@
 """
-多轮对话RAG功能演示
+多轮对话RAG功能演示（会话历史存 Redis，需要先执行 deploy/start.sh）
 """
+import asyncio
 import logging
 from MedicalRag.config.loader import ConfigLoader
+from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
+from MedicalRag.core.session_store import RedisSessionStore
 from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
 
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +23,7 @@ def print_output(result):
             content = ctx.page_content[:200] + "..." if len(ctx.page_content) > 200 else ctx.page_content
             print(f"{content}\n\n")
 
-def main():
+async def main():
     # 加载配置
     config_manager = ConfigLoader()
 
@@ -30,23 +33,29 @@ def main():
     # @register_estimate_function("self_fun")
     # def estimate_tokens(text: str) -> int:
     #     """ 示例：简单的线性关系 你需要自己实现根据传入的自然语言来估计可能会被模型编码的token数量"""
-    #     tokens = len(text) * 0.8  # 
+    #     tokens = len(text) * 0.8  #
     #     return tokens
     # # 2) 修改配置文件（已有默认实现：avg、tiktoken）
     # config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
-    
-    # 创建基础RAG系统
-    rag = MultiDialogueRag(config_manager.config)
-    query = "我有点肚子痛，该怎么办？"
+
+    cfg = config_manager.config
+    kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
+    store = RedisSessionStore(cfg.redis)
+    rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store)
     session_id = "U123"
-    
-    
-    while True:
-        query = input()
-        result = rag.answer(query, session_id=session_id, return_document=True)
-        print_output(result=result)
-        print("---------------------------")
-    
+
+    try:
+        while True:
+            query = input()
+            if query.strip().lower() in ("q", "exit", "quit", "退出"):
+                break
+            result = await rag.answer(query, session_id=session_id, return_document=True)
+            print_output(result=result)
+            print("---------------------------")
+    finally:
+        await kb.close()
+        await store.close()
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

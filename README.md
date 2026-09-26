@@ -20,14 +20,18 @@ medical-rag/
 ├── src/MedicalRag/
 │   ├── config/              # 配置管理系统
 │   │   ├── models.py        # Pydantic配置模型
-│   │   ├── loader.py        # 配置加载器
-│   │   └── app_config.yaml  # 默认配置文件
+│   │   ├── loader.py        # 配置加载器（读取目录下所有 *.yaml，支持按文件覆盖）
+│   │   ├── storage.yaml     # Milvus / Redis / PostgreSQL / Neo4j 连接
+│   │   ├── models.yaml      # LLM / Embedding
+│   │   ├── data.yaml        # 数据字段映射
+│   │   ├── dialogue.yaml    # 多轮对话策略
+│   │   └── agent.yaml       # Agent 策略
 │   ├── core/                # 核心组件
 │   │   ├── utils.py         # LLM/嵌入模型创建工具
 │   │   ├── KnowledgeBase.py # 多向量知识库
 │   │   ├── HybridRetriever.py # 混合检索器
 │   │   ├── insert.py        # Milvus入库工具类
-│   │   ├── DBFactory.py     # 知识库工厂，并行检索时保证单例客户端的线程安全
+│   │   ├── session_store.py # Redis 会话存储（对话历史、摘要、Agent 状态、会话锁）
 │   │   └── IngestionPipeline.py # 数据入库流水线
 │   ├── embed/               # 嵌入相关
 │   │   ├── vocab/           # 领域词表默认保存目录
@@ -37,10 +41,12 @@ medical-rag/
 │   │   └── annotation.py    # 自动标注系统
 │   ├── rag/                 # RAG核心
 │   │   ├── RagBase.py       # RAG实现的基类
-│   │   ├── RagEvaluate.py   # RAG评测的基类与实现类
 │   │   ├── utils.py         # 工具类
 │   │   ├── MultiDialogueRag.py   # 多轮对话实现类
 │   │   └── SimpleRag.py     # 基础RAG实现
+│   ├── eval/                # 统一评测流程（各个库共用，不依赖具体实现）
+│   │   ├── runner.py        # 采样、收集答案、JSONL 读写、ragas 打分
+│   │   └── adapters.py      # 把具体实现包装成统一的答题函数
 │   ├── prompts/             # 提示词管理
 │   │   └── templates.py     # 提示词模板
 │   └── agent/               # 智能体实现
@@ -147,7 +153,25 @@ export DASHSCOPE_API_KEY = "xxxxx"
 
 ### 2. 配置及向量库说明
 
-编辑 `src/MedicalRag/config/app_config.yaml`可修改默认配置，也可在引入config时动态修改部分配置：
+配置按领域拆成多个文件，放在 `src/MedicalRag/config/` 下，改哪个领域就编辑对应文件：
+
+| 文件 | 包含的配置 | 什么时候改 |
+| --- | --- | --- |
+| `storage.yaml` | `milvus`、`redis`、`postgres`、`neo4j` | 换部署环境 |
+| `models.yaml` | `llm`、`embedding` | 换模型 / 提供商 |
+| `data.yaml` | `data` | 换数据集的字段映射 |
+| `dialogue.yaml` | `multi_dialogue_rag` | 调整多轮对话策略 |
+| `agent.yaml` | `agent` | 调整 Agent 策略 |
+
+`ConfigLoader` 会读取目录下所有 `*.yaml` 并合并成一份完整配置：
+
+```python
+ConfigLoader()                                    # 默认读取包内 config/ 目录
+ConfigLoader("my_conf/")                          # 读取自己的配置目录
+ConfigLoader(overrides=["exp/models_qwen.yaml"])  # 默认配置 + 只整段替换模型配置
+```
+
+也可在引入 config 时动态修改部分配置（见下文「动态修改配置」）。各段配置说明：
 
 ```yaml
 # Milvus向量数据库配置
@@ -203,13 +227,25 @@ multi_dialogue_rag:
   console_debug: true  # 是否启用控制台日志查看
   thinking_in_context: false  # 是否将思考内容加入上下文历史对话
 
-agent:  # 智能体会沿用上述多轮对话rag的配置
+agent:
   mode: analysis
   max_attempts: 2  # 每一个子目标查询的最大重试次数，否则进行联网搜索
   network_search_enabled: True  # 是否启用联网搜索
   network_search_cnt: 10  # 开启联网搜索时，返回的数量
   auto_search_param: True  # 是否开启确定搜索参数
+  console_debug: true  # 是否启用控制台日志查看
+
+# Redis 会话存储（多轮对话与 Agent 的跨轮状态），密码从 deploy/.env 读取
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  password_env: REDIS_PASSWORD
+  session_ttl: 604800  # 会话数据保留时长，单位秒
 ```
+
+> 多轮对话 RAG 和 Agent 的会话状态存在 Redis 里，运行前需要先执行 `deploy/start.sh`；
+> 单轮 RAG、单轮检索图、入库、检索不依赖 Redis。
 
 ### 3. 快速使用
 
@@ -326,8 +362,11 @@ def estimate_tokens(text: str) -> int:
     return tokens
 # 2) 修改配置文件（已有默认实现：avg、tiktoken）
 config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
-# 3) 传入配置，开始问答
-rag = MultiDialogueRag(config_manager.config)
+# 3) 组装组件，开始问答
+cfg = config_manager.config
+kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
+store = RedisSessionStore(cfg.redis)
+rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store)
 ```
 
 #### 8. 检索智能体
@@ -453,32 +492,46 @@ register_prompt_template("professional_medical", {
 })
 ```
 
-### Web API 部署
+### 组装与异步调用
+
+包内所有对外方法都是 `async`，知识库 `kb` 与会话存储 `store` 由调用方创建后注入，
+一个进程里只需要各一个实例，多个组件共用：
 
 ```python
-from fastapi import FastAPI
-from MedicalRag.rag.basic_rag import BasicRAG
+import asyncio
 from MedicalRag.config.loader import ConfigLoader
+from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
+from MedicalRag.core.session_store import RedisSessionStore
+from MedicalRag.core.utils import create_llm_client
+from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
+from MedicalRag.agent.MedicalAgent import MedicalAgent
 
-app = FastAPI(title="Medical RAG API")
-config = ConfigLoader().config 
-rag_system = BasicRAG(config)
+cfg = ConfigLoader().config
+kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
+store = RedisSessionStore(cfg.redis)
+rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store)
+agent = MedicalAgent(cfg.llm, cfg.agent, kb, store, power_model=create_llm_client(cfg.llm))
 
-@app.post("/ask")
-async def ask_medical_question(question: str):
-    """医疗问答API"""
-    result = rag_system.answer(question, return_context=True)
-    return {
-        "question": question,
-        "answer": result["answer"], 
-        "sources": [ctx["metadata"]["source"] for ctx in result["context"]],
-        "confidence": len(result["context"])
-    }
+async def main():
+    # 阻塞式：一个实例服务所有会话，用 session_id 区分
+    result = await rag.answer("我有点肚子痛，该怎么办？", return_document=True, session_id="U123")
+    print(result["answer"])
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 流式：原样透传 LangChain astream_events(v2) 事件，由外部转换成 SSE / WebSocket 协议
+    async for event in rag.stream("那需要忌口吗？", session_id="U123"):
+        if event["event"] == "on_chat_model_stream":
+            print(event["data"]["chunk"].content, end="")
+
+    # 多个问题并发
+    await rag.batch_answer(["问题1", "问题2", "问题3"])
+
+    await kb.close()
+    await store.close()
+
+asyncio.run(main())
 ```
+
+HTTP 接口、鉴权、SSE 协议等由外部业务实现，示例见 `software/backend/`。
 
 ## 📊 Debug For VsCode
 

@@ -1,11 +1,13 @@
+import asyncio
 import logging
 from MedicalRag.config.loader import ConfigLoader
 from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
 from MedicalRag.config.models import SingleSearchRequest, SearchRequest, FusionSpec
 
-def main():
+async def main():
     config_manager = ConfigLoader()
-    kb = MedicalHybridKnowledgeBase(config_manager.config)
+    cfg = config_manager.config
+    kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     # 单一向量检索
     query = "我脑袋有点晕，怎么办？"
     ssr = SingleSearchRequest(
@@ -17,12 +19,12 @@ def main():
     )
     sr1 = SearchRequest(
         query=query,
-        collection_name=config_manager.config.milvus.collection_name,
+        collection_name=cfg.milvus.collection_name,
         requests=[ssr],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
         limit=10
     )
-    result = kb.search(req=sr1)
+    result = await kb.search(req=sr1)
     print(result[0] if len(result) != 0 else "没有找到数据")
     
     # 多向量联合检索
@@ -44,12 +46,12 @@ def main():
     )
     sr2 = SearchRequest(
         query=query,
-        collection_name=config_manager.config.milvus.collection_name,
+        collection_name=cfg.milvus.collection_name,
         requests=[ssr1, ssr2],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
         limit=10
     )
-    result = kb.search(req=sr2)
+    result = await kb.search(req=sr2)
     print(result[0] if len(result) != 0 else "没有找到数据")
     
     print("==============================================")
@@ -74,14 +76,16 @@ def main():
     )
     sr3 = SearchRequest(
         query=query,
-        collection_name=config_manager.config.milvus.collection_name,
+        collection_name=cfg.milvus.collection_name,
         requests=[ssr1, ssr2],
         output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
         fuse=fuse,
         limit=10
     )
-    result = kb.search(req=sr3)
+    result = await kb.search(req=sr3)
     print(result[0] if len(result) != 0 else "没有找到数据")
-    
+
+    await kb.close()
+
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
