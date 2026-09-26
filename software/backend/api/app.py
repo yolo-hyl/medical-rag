@@ -23,7 +23,7 @@ from MedicalRag.core.IngestionPipeline import IngestionPipeline
 from MedicalRag.core.utils import create_embedding_client, create_llm_client
 from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
 from MedicalRag.rag.SimpleRag import SimpleRAG
-from MedicalRag.api import auth as _auth
+from software.backend.api import auth as _auth
 
 # ---------------------------------------------------------------------------
 # Module-level state — populated during lifespan startup
