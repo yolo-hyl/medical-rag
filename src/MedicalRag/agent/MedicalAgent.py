@@ -4,22 +4,27 @@ import logging
 import re
 from functools import partial
 from operator import add
-from typing import Annotated, Any, List, TypedDict
+from typing import Annotated, Any, AsyncIterator, List, TypedDict
 
 from langchain.output_parsers import OutputFixingParser, PydanticOutputParser
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage, BaseMessage, HumanMessage, SystemMessage,
+    messages_from_dict, messages_to_dict,
+)
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 from pydantic import BaseModel, Field
 
-from ..config.models import AppConfig
+from ..config.models import AgentConfig, LLMConfig
+from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
+from ..core.session_store import RedisSessionStore
 from ..core.utils import create_llm_client
+from ..prompts.templates import get_prompt_template
 from .SearchGraph import SearchGraph, SearchMessagesState
 from .utils import strip_think_get_tokens
-from MedicalRag.prompts.templates import get_prompt_template
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +75,7 @@ class MedicalAgentState(TypedDict, total=False):
 
 # ===================== 节点函数 =====================
 
-def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+async def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """判断是否需要向用户追问，并输出追问问题。"""
     parser = PydanticOutputParser(pydantic_object=AskMess)
     fixing = OutputFixingParser.from_llm(parser=parser, llm=llm)
@@ -85,7 +90,7 @@ def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState
     ])
 
     curr_ask_mess = [] if state["curr_ask_num"] == 0 else state["asking_messages"][-1]
-    ai = (prompt | llm | RunnableLambda(strip_think_get_tokens)).invoke({
+    ai = await (prompt | llm | RunnableLambda(strip_think_get_tokens)).ainvoke({
         "background_info": state["background_info"],
         "question": state["curr_input"],
         "asking_history": curr_ask_mess,
@@ -96,7 +101,7 @@ def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState
     else:
         state["asking_messages"][-1].append(HumanMessage(content=state["curr_input"]))
 
-    patch: AskMess = fixing.parse(ai["msg"])
+    patch: AskMess = await fixing.aparse(ai["msg"])
     state["ask_obj"] = patch
 
     if patch.need_ask:
@@ -125,7 +130,7 @@ def route_ask_again(state: MedicalAgentState) -> str:
     return "pass"
 
 
-def extract_background_info(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+async def extract_background_info(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """抽取追问轮次中的关键用户背景信息。"""
     prompt = ChatPromptTemplate.from_messages([
         ("system", get_prompt_template("extract_user_info")["system"]),
@@ -133,7 +138,7 @@ def extract_background_info(state: MedicalAgentState, llm: BaseChatModel) -> Med
         ("human", get_prompt_template("extract_user_info")["user"]),
     ])
     asking_hist = state["asking_messages"][-1] if state["asking_messages"] else []
-    ai = (prompt | llm | RunnableLambda(strip_think_get_tokens)).invoke({
+    ai = await (prompt | llm | RunnableLambda(strip_think_get_tokens)).ainvoke({
         "question": asking_hist[0].content if asking_hist else state["curr_input"],
         "asking_history": asking_hist,
     })
@@ -142,10 +147,10 @@ def extract_background_info(state: MedicalAgentState, llm: BaseChatModel) -> Med
     return state
 
 
-def check_update_background(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+async def check_update_background(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """第二轮及以后：检查用户输入是否在纠正或补充背景信息，如是则更新。"""
     tmpl = get_prompt_template("update_background")
-    result = llm.invoke([
+    result = await llm.ainvoke([
         SystemMessage(content=tmpl["system"]),
         HumanMessage(content=tmpl["user"].format(
             background_info=state.get("background_info", ""),
@@ -166,7 +171,7 @@ def route_entry(state: MedicalAgentState) -> str:
     return "check_update_background" if state.get("background_info") else "ask"
 
 
-def judge_split_query(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+async def judge_split_query(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """判断是否需要拆分成多个子查询，并给出改写后的查询。"""
     parser = PydanticOutputParser(pydantic_object=SplitQuery)
     fixing = OutputFixingParser.from_llm(parser=parser, llm=llm)
@@ -185,12 +190,12 @@ def judge_split_query(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAg
         MessagesPlaceholder(variable_name="dialogue_messages"),
         ("user", get_prompt_template("handle_query")["user"]),
     ])
-    ai = (prompt | llm | RunnableLambda(strip_think_get_tokens)).invoke({
+    ai = await (prompt | llm | RunnableLambda(strip_think_get_tokens)).ainvoke({
         "background_info": state["background_info"],
         "question": state["curr_input"],
         "dialogue_messages": state["dialogue_messages"],
     })
-    patch: SplitQuery = fixing.parse(ai["msg"])
+    patch: SplitQuery = await fixing.aparse(ai["msg"])
     if len(patch.sub_query) > 3:
         patch.sub_query = patch.sub_query[:3]
 
@@ -218,26 +223,16 @@ def route_to_subgraphs(state: MedicalAgentState) -> List[Send]:
     return [Send("search_one", {"query": q}) for q in queries]
 
 
-def search_one(task_input: dict, search_graph: SearchGraph) -> dict:
+async def search_one(task_input: dict, search_graph: SearchGraph) -> dict:
     """
-    单个子查询的执行节点，由 Send 调度，可并行运行多个实例。
+    单个子查询的执行节点，由 Send 调度，多个实例作为协程并发执行。
     返回值通过 sub_query_results 的 add reducer 自动合并到主状态。
     """
-    query = task_input["query"]
-    init_state: SearchMessagesState = {
-        "query": query,
-        "main_messages": [HumanMessage(content=query)],
-        "other_messages": [],
-        "docs": [],
-        "summary": "",
-        "retry": search_graph.config.agent.max_attempts,
-        "final": "",
-    }
-    result = search_graph.run(init_state)
+    result = await search_graph.run(search_graph.init_state(task_input["query"]))
     return {"sub_query_results": [result]}
 
 
-def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+async def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """
     汇总各子查询答案：
     - 单子查询：直接使用检索结果
@@ -281,7 +276,7 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
 
             sys_tmpl = get_prompt_template("basic_rag")["system"]
             user_tmpl = get_prompt_template("basic_rag")["user"]
-            synthesis_ai = llm.invoke([
+            synthesis_ai = await llm.ainvoke([
                 SystemMessage(content=sys_tmpl),
                 HumanMessage(content=user_tmpl.format(
                     all_document_str=combined_context,
@@ -314,7 +309,7 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
     if len(state["multi_summary"]) >= 8:
         old_entries = state["multi_summary"][:4]
         summary_text = "\n".join(old_entries)
-        compressed = llm.invoke([
+        compressed = await llm.ainvoke([
             SystemMessage(content=get_prompt_template("summary")["system"]),
             HumanMessage(content=summary_text + "\n" + get_prompt_template("summary")["user"]),
         ])
@@ -338,11 +333,25 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
 # ===================== MedicalAgent 主类 =====================
 
 class MedicalAgent:
-    def __init__(self, config: AppConfig, power_model: BaseChatModel) -> None:
-        self.config = config
+    """医疗 Agent
+
+    本身无状态：跨轮状态存在 Redis 里，一个实例服务所有会话。
+    单轮内的中间产物（当前输入、子查询、子查询结果等）每轮重新开始，不持久化。
+    """
+
+    def __init__(
+        self,
+        llm: LLMConfig,
+        agent: AgentConfig,
+        kb: MedicalHybridKnowledgeBase,
+        store: RedisSessionStore,
+        power_model: BaseChatModel,
+    ) -> None:
+        self.agent_config = agent
+        self.store = store
         self.power_model = power_model
-        self.normal_llm = create_llm_client(self.config.llm)
-        self.search_graph = SearchGraph(self.config, power_model)
+        self.normal_llm = create_llm_client(llm)
+        self.search_graph = SearchGraph(llm, agent, kb, power_model)
         self.build_graph()
 
     def build_graph(self):
@@ -378,29 +387,88 @@ class MedicalAgent:
         g.add_edge("answer", END)
 
         self.app = g.compile()
-        self._reset_state()
 
-    def _reset_state(self):
-        self.state: MedicalAgentState = {
+    # ---------- 会话状态：读写 Redis ----------
+    @staticmethod
+    def _state_key(session_id: str) -> str:
+        return f"medrag:agent:{session_id}:state"
+
+    async def _load_state(self, session_id: str) -> MedicalAgentState:
+        """读取跨轮状态，没有就返回初始状态；单轮内的中间产物每轮都重置"""
+        state: MedicalAgentState = {
+            # 跨轮字段
             "dialogue_messages":  [],
             "asking_messages":    [],
             "background_info":    "",
-            "ask_obj":            None,
             "multi_summary":      [],
             "running_summary":    "",
-            "rewritten_query":    "",
-            "curr_input":         "",
-            "sub_query":          None,
-            "sub_query_results":  [],   # 每轮 invoke 前重置，避免 add reducer 跨轮累积
             "max_ask_num":        5,
             "curr_ask_num":       0,
+            # 单轮字段：每轮重置
+            "curr_input":         "",
+            "ask_obj":            None,
+            "sub_query":          None,
+            "sub_query_results":  [],   # add reducer 需要从空列表开始积累
+            "rewritten_query":    "",
             "final_answer":       "",
             "performance":        [],
         }
 
-    def answer(self, user_input: str) -> MedicalAgentState:
-        self.state["curr_input"] = user_input
-        # 每轮 invoke 前重置子查询结果，使 add reducer 从空列表开始积累
-        self.state["sub_query_results"] = []
-        self.state = self.app.invoke(self.state)
-        return self.state
+        saved = await self.store.get_json(self._state_key(session_id))
+        if saved:
+            state.update({
+                "dialogue_messages": messages_from_dict(saved["dialogue_messages"]),
+                "asking_messages": [messages_from_dict(round_) for round_ in saved["asking_messages"]],
+                "background_info": saved["background_info"],
+                "multi_summary": saved["multi_summary"],
+                "running_summary": saved["running_summary"],
+                "max_ask_num": saved["max_ask_num"],
+                "curr_ask_num": saved["curr_ask_num"],
+            })
+        return state
+
+    async def _save_state(self, session_id: str, state: MedicalAgentState) -> None:
+        """只写跨轮字段"""
+        await self.store.set_json(self._state_key(session_id), {
+            "dialogue_messages": messages_to_dict(state["dialogue_messages"]),
+            "asking_messages": [messages_to_dict(round_) for round_ in state["asking_messages"]],
+            "background_info": state.get("background_info", ""),
+            "multi_summary": state.get("multi_summary", []),
+            "running_summary": state.get("running_summary", ""),
+            "max_ask_num": state.get("max_ask_num", 5),
+            "curr_ask_num": state.get("curr_ask_num", 0),
+        })
+
+    @staticmethod
+    def _merge_updates(state: MedicalAgentState, updates: dict) -> None:
+        """按状态定义的 reducer 合并节点更新：sub_query_results 追加，其余直接覆盖"""
+        for key, value in updates.items():
+            if key == "sub_query_results":
+                state["sub_query_results"] = state.get("sub_query_results", []) + list(value)
+            else:
+                state[key] = value
+
+    # ---------- 对外 API ----------
+    async def answer(self, user_input: str, session_id: str = "default") -> MedicalAgentState:
+        async with self.store.lock(session_id):
+            state = await self._load_state(session_id)
+            state["curr_input"] = user_input
+            state = await self.app.ainvoke(state)
+            await self._save_state(session_id, state)
+        return state
+
+    async def stream(self, user_input: str, session_id: str = "default") -> AsyncIterator[dict]:
+        """原样透传 LangGraph astream(stream_mode="updates") 的 {节点名: 更新}。
+
+        外部按节点名识别阶段：
+            ask / extract_ask_and_reply / check_update_background /
+            split_query / search_one / answer
+        """
+        async with self.store.lock(session_id):
+            state = await self._load_state(session_id)
+            state["curr_input"] = user_input
+            async for chunk in self.app.astream(state, stream_mode="updates"):
+                for updates in chunk.values():
+                    self._merge_updates(state, updates)
+                yield chunk
+            await self._save_state(session_id, state)

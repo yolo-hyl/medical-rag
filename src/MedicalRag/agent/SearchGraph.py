@@ -1,30 +1,24 @@
-from typing_extensions import TypedDict
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
-from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode
-from langgraph.graph import StateGraph, END
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.agent.tools import AgentTools
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage, ToolMessage
-from typing import TypedDict, List
-from langchain_community.chat_models.tongyi import ChatTongyi
-from typing import Any, Dict, List, Optional, Union
-from langchain_core.documents import Document
-import re, json
-from langchain_core.language_models.chat_models import BaseChatModel
-from MedicalRag.prompts.templates import get_prompt_template
-from langchain.output_parsers import PydanticOutputParser, OutputFixingParser
-from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import (
-    RunnablePassthrough, RunnableParallel, RunnableLambda, RunnableMap
-)
-from functools import partial
-from .tools import tencent_cloud_search
+import json
 import logging
+import re
+from functools import partial
+from typing import List, TypedDict, Union
+
+from langchain.output_parsers import OutputFixingParser, PydanticOutputParser
+from langchain_core.documents import Document
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda
+from langgraph.graph import END, StateGraph
+from langgraph.prebuilt import ToolNode
+from pydantic import BaseModel, Field
+
+from ..config.models import AgentConfig, LLMConfig
+from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
 from ..core.utils import create_llm_client
-from ..config.models import AppConfig
-from copy import deepcopy
+from ..prompts.templates import get_prompt_template
+from .tools import AgentTools, tencent_cloud_search
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +66,7 @@ def _should_call_tool(last_ai: BaseMessage) -> bool:
     """ 判断上一步是否触发了工具 """
     return bool(getattr(last_ai, "tool_calls", None))
 
-def llm_db_search(
+async def llm_db_search(
     state: SearchMessagesState, 
     llm: BaseChatModel,
     db_tool_node: ToolNode,
@@ -80,7 +74,7 @@ def llm_db_search(
 ) -> SearchMessagesState:
     """ DB 检索节点 可能出发db_tool """
     query = state["query"]
-    db_ai = llm.invoke([
+    db_ai = await llm.ainvoke([
         SystemMessage(content=get_prompt_template("call_db")["system"]),
         HumanMessage(content=get_prompt_template("call_db")["user"].format(query=query))
     ])
@@ -88,18 +82,20 @@ def llm_db_search(
     if _should_call_tool(db_ai):
         if show_debug:
             logger.info(f"开始db检索，检索参数：{db_ai.additional_kwargs['tool_calls'][0]['function']['arguments']}")
-        tool_msgs : ToolMessage = db_tool_node.invoke([db_ai])
+        tool_msgs : ToolMessage = await db_tool_node.ainvoke([db_ai])
         state["other_messages"].append(tool_msgs)
         state["docs"].extend(json_to_list_document(tool_msgs[0].content))
         if show_debug:
-            if len(state["docs"]) >= 2:
-                logger.info(f"部分示例（共{len(state['docs'])}条）：\n\n{state['docs'][0].page_content[:200]}...\n\n{state['docs'][1].page_content[:200]}...")
+            docs = state["docs"]
+            if not docs:
+                logger.info("db检索没有返回数据")
             else:
-                logger.info(f"仅检索一条数据：\n\n{state['docs'][0].page_content[:200]}")
+                preview = "\n\n".join(d.page_content[:200] for d in docs[:2])
+                logger.info(f"部分示例（共{len(docs)}条）：\n\n{preview}")
     return state
 
 
-def llm_network_search(
+async def llm_network_search(
     state: SearchMessagesState,
     judge_llm: BaseChatModel,
     network_search_llm: BaseChatModel,
@@ -134,7 +130,7 @@ def llm_network_search(
     
     try:
         # 执行判断链，直接得到解析后的结果
-        result: NetworkSearchResult = judge_chain.invoke({
+        result: NetworkSearchResult = await judge_chain.ainvoke({
             "query": state['query'],
             "docs": format_document_str(state.get('docs', []))
         })
@@ -160,12 +156,12 @@ def llm_network_search(
         search_chain = calling_messages | network_search_llm
         
         # 执行搜索
-        search_ai = search_chain.invoke({"search_query": result.search_query})
+        search_ai = await search_chain.ainvoke({"search_query": result.search_query})
         state["other_messages"].append(search_ai)
         
         # 检查是否有工具调用
         if _should_call_tool(search_ai):
-            tool_msgs: ToolMessage = network_tool_node.invoke([search_ai])
+            tool_msgs: ToolMessage = await network_tool_node.ainvoke([search_ai])
             state["other_messages"].append(tool_msgs)
             
             # 更新文档
@@ -188,7 +184,7 @@ def llm_network_search(
     return state
 
 
-def rag(
+async def rag(
     state: SearchMessagesState,
     llm: BaseChatModel,
     show_debug: bool
@@ -206,7 +202,7 @@ def rag(
         ))
     ]
     
-    rag_ai = llm.invoke(prompt)
+    rag_ai = await llm.ainvoke(prompt)
     rag_ai.content = del_think(rag_ai.content)
     if not isinstance(state["main_messages"][-1], AIMessage):
         # 上一轮rag生成合格
@@ -219,7 +215,7 @@ def rag(
     return state
 
 
-def judge(
+async def judge(
     state: SearchMessagesState,
     llm: BaseChatModel,
     show_debug: bool
@@ -227,7 +223,7 @@ def judge(
     """判断节点：负责判断和修改状态"""
     if show_debug:
         logger.info(f"开始评估...")
-    judge_ai = llm.invoke([
+    judge_ai = await llm.ainvoke([
         SystemMessage(content=get_prompt_template("judge_rag")["system"]),
         HumanMessage(content=get_prompt_template("judge_rag")["user"].format(
             format_document_str=format_document_str(state.get('docs', [])),
@@ -255,17 +251,26 @@ def judge(
 
 
 class SearchGraph:
-    def __init__(self, config: AppConfig, power_model: BaseChatModel, websearch_func=tencent_cloud_search) -> None:
-        self.config = config
-        self.agent_tools = AgentTools(self.config)
+    """单轮检索图：每次调用都新建初始状态，本身没有会话状态"""
+
+    def __init__(
+        self,
+        llm: LLMConfig,
+        agent: AgentConfig,
+        kb: MedicalHybridKnowledgeBase,
+        power_model: BaseChatModel,
+        websearch_func=tencent_cloud_search
+    ) -> None:
+        self.agent_config = agent
+        self.agent_tools = AgentTools(kb, agent.network_search_cnt)
         self.agent_tools.register_websearch(websearch_func)
         self.db_search_tool = self.agent_tools.make_database_search_tool()
         self.network_search_tool = self.agent_tools.make_web_search_tool()
-        
+
         # bind_tools() 返回新的 RunnableBinding，不修改原模型，无需 deepcopy
         self.db_search_llm = power_model.bind_tools([self.db_search_tool])
         self.network_search_llm = power_model.bind_tools([self.network_search_tool])
-        self.llm = create_llm_client(self.config.llm)
+        self.llm = create_llm_client(llm)
 
         self.db_tool_node = ToolNode([self.db_search_tool])
         self.network_tool_node = ToolNode([self.network_search_tool])
@@ -298,7 +303,7 @@ class SearchGraph:
             llm_db_search,
             llm=self.db_search_llm,
             db_tool_node=self.db_tool_node,
-            show_debug=self.config.multi_dialogue_rag.console_debug
+            show_debug=self.agent_config.console_debug
         )
         g.add_node("db_search", db_search_node)
         network_search_node = partial(
@@ -306,13 +311,13 @@ class SearchGraph:
             judge_llm=self.llm,
             network_search_llm=self.network_search_llm,
             network_tool_node=self.network_tool_node,
-            show_debug=self.config.multi_dialogue_rag.console_debug
+            show_debug=self.agent_config.console_debug
         )
         g.add_node("web_search", network_search_node)
         rag_node = partial(
             rag,
             llm=self.llm,
-            show_debug=self.config.multi_dialogue_rag.console_debug
+            show_debug=self.agent_config.console_debug
         )
         g.add_node("rag", rag_node)
         g.add_node("finish_success", finish_success)
@@ -320,14 +325,14 @@ class SearchGraph:
         judge_node = partial(
             judge,
             llm=self.llm,
-            show_debug=self.config.multi_dialogue_rag.console_debug
+            show_debug=self.agent_config.console_debug
         )
         g.add_node("judge", judge_node)
         # 入口
         g.set_entry_point("db_search")
 
         # db_search -> web_search
-        if self.config.agent.network_search_enabled:
+        if self.agent_config.network_search_enabled:
             g.add_edge("db_search", "web_search")
             g.add_edge("web_search", "rag")
         else:
@@ -335,7 +340,7 @@ class SearchGraph:
         
         # rag -> judge_router（条件分支）
         # judge -> 条件路由
-        if self.config.agent.mode == "analysis":
+        if self.agent_config.mode == "analysis":
             g.add_edge("rag", "judge")
             g.add_conditional_edges(
                 "judge",  # 从判断节点出发
@@ -349,30 +354,29 @@ class SearchGraph:
             # 结束
             g.add_edge("finish_success", END)
             g.add_edge("finish_fail", END)
-        elif self.config.agent.mode == "fast":
+        elif self.agent_config.mode == "fast":
             g.add_edge("rag", END)
 
         self.search_graph = g.compile()
 
-    # ---------- 对外：跑整张图，返回最终输出 ----------
-    def answer(self, query: str) -> str:
-        if self.search_graph is None:
-            self.build_search_graph()
-        init_state: SearchMessagesState = {
+    def init_state(self, query: str) -> SearchMessagesState:
+        """构造一次检索的初始状态"""
+        return {
             "query": query,
             "main_messages": [HumanMessage(content=query)],
             "other_messages": [],
             "docs": [],
             "summary": "",
-            "retry": self.config.agent.max_attempts,
+            "retry": self.agent_config.max_attempts,
             "final": ""
         }
-        # 执行图
-        out_state: SearchMessagesState = self.search_graph.invoke(init_state)
+
+    # ---------- 对外：跑整张图，返回最终输出 ----------
+    async def answer(self, query: str) -> str:
+        out_state = await self.run(self.init_state(query))
         return out_state.get("final", "") or out_state.get("summary", "") or "（空）"
-    
-    def run(self, init_state: SearchMessagesState) -> SearchMessagesState:
+
+    async def run(self, init_state: SearchMessagesState) -> SearchMessagesState:
         if self.search_graph is None:
             self.build_search_graph()
-        out_state: SearchMessagesState = self.search_graph.invoke(init_state)
-        return out_state
+        return await self.search_graph.ainvoke(init_state)
