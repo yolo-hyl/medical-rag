@@ -29,3 +29,4 @@ out/
 .nuxt/
 .storybook-out/
 
+.venv
