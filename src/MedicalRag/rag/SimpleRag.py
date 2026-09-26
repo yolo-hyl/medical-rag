@@ -1,35 +1,40 @@
 from __future__ import annotations
 import logging
-from typing import List, Dict, Any, Optional, Union
-from langchain_core.retrievers import BaseRetriever
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.documents import Document
-from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
-from ..config.models import *
-from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
-from ..core.HybridRetriever import MedicalHybridRetriever
-from ..core.utils import create_llm_client
-from ..prompts.templates import get_prompt_template
-import traceback
 import re
-from .RagBase import BasicRAG
+import traceback
+from typing import Dict, List, Union
+
+from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
-import time
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+
+from ..config.models import LLMConfig, SearchRequest
+from ..core.HybridRetriever import MedicalHybridRetriever
+from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
+from ..prompts.templates import get_prompt_template
+from .RagBase import BasicRAG
+from .utils import StageTimer
 
 logger = logging.getLogger(__name__)
+
+# 链中 LLM 调用的 run_name，同时作为 StageTimer 的计时键
+GENERATE_LLM = "generate"
 
 
 class SimpleRAG(BasicRAG):
     """基础医疗RAG系统 - 使用LangChain标准组件构建"""
 
-    def __init__(self, config: AppConfig, search_config: SearchRequest = None):
-        super().__init__(config, search_config)
-        # 初始化向量知识库和文档检索器
-        self.knowledge_base = MedicalHybridKnowledgeBase(config)
+    def __init__(
+        self,
+        llm: LLMConfig,
+        kb: MedicalHybridKnowledgeBase,
+        search_config: SearchRequest = None
+    ):
+        super().__init__(llm, kb, search_config)
+        # 文档检索器
         self.milvus_retriever: BaseRetriever = MedicalHybridRetriever(self.knowledge_base, self.search_config)
-        
-        # 初始化LLM
-        self.llm = create_llm_client(config.llm)
         # 设置prompt模板
         self.prompt = self._setup_dialogue_rag_prompt()
         # 构建RAG链
@@ -63,6 +68,7 @@ class SimpleRAG(BasicRAG):
         def strip_think_and_time(msg: AIMessage):
             text = msg.content
             cleaned = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+            # total_duration 是 Ollama 专有字段；OpenAI 兼容接口的耗时由 StageTimer 在链外统计
             dur = msg.response_metadata.get("total_duration", 0) / 1e9
             return {"answer": cleaned.strip(), "generate_time": dur}
 
@@ -80,7 +86,7 @@ class SimpleRAG(BasicRAG):
         # 3) 生成：prompt -> llm -> 清洗
         generate = (
             self.prompt.with_config(run_name="apply_prompt")
-            | self.llm.with_config(run_name="generate")
+            | self.llm.with_config(run_name=GENERATE_LLM)
             | RunnableLambda(strip_think_and_time)
         )
 
@@ -93,28 +99,24 @@ class SimpleRAG(BasicRAG):
 
         logger.info("RAG链构建完成")
 
-    def answer(
-        self, 
-        query: str, 
+    async def answer(
+        self,
+        query: str,
         return_document: bool = False
     ) -> Union[str, Dict[str, Union[str, List[Document]]]]:
         logger.info(f"处理问题: {query}")
-        
+
         try:
-            result = self.rag_chain.invoke({"input": query})
+            timer = StageTimer()   # 每个请求一个，互不干扰
+            result = await self.rag_chain.ainvoke({"input": query}, config={"callbacks": [timer]})
+            times = {
+                "search_time": result["milvus_result"]["search_time"],
+                "generation_time": timer.duration(GENERATE_LLM, result["llm"]["generate_time"]),
+            }
             answer = result["llm"]["answer"]
             if return_document:
-                return {
-                    "answer": answer,
-                    "documents": result["milvus_result"]["documents"],
-                    "search_time": result["milvus_result"]["search_time"],
-                    "generation_time": result["llm"]["generate_time"]
-                }
-            return {
-                "answer": answer,
-                "search_time": result["milvus_result"]["search_time"],
-                "generation_time": result["llm"]["generate_time"]
-            }
+                return {"answer": answer, "documents": result["milvus_result"]["documents"], **times}
+            return {"answer": answer, **times}
         except Exception as e:
             logger.error(f"RAG处理失败: {e}")
             print(traceback.format_exc())
