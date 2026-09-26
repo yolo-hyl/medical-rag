@@ -1,0 +1,28 @@
+# 联调用：集合名单独一份，避免动到 medical_knowledge
+milvus:
+  uri: http://localhost:19530
+  token: null
+  collection_name: medrag_debug
+  drop_old: true
+  auto_id: false
+
+postgres:
+  host: 127.0.0.1
+  port: 5432
+  user: medrag
+  database: medrag
+  password_env: POSTGRES_PASSWORD
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  password_env: REDIS_PASSWORD
+  session_ttl: 604800
+  lock_timeout: 600
+  lock_wait: 600
+
+neo4j:
+  uri: bolt://127.0.0.1:7687
+  user: neo4j
+  password_env: NEO4J_PASSWORD

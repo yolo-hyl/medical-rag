@@ -1,0 +1,8 @@
+# 数据字段映射：换数据集时改这里
+data:
+  summary_field: question
+  document_field: answer
+  default_source: qa
+  default_source_name: huatuo_qa
+  default_lt_doc_id: ''
+  default_chunk_id: -1

@@ -15,8 +15,8 @@
 log
 vocab.pkl.gz
 
-# 本地联调脚本，不进仓库
-/debug/
+# 联调脚本产生的中间文件
+/debug/**/__pycache__/
 
 # web
 # dependencies

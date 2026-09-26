@@ -1,0 +1,26 @@
+# 联调用：本地 vLLM 服务
+# text_sparse 用 Milvus 托管 BM25，省掉构建词表（vocab.pkl.gz）这一步
+embedding:
+  summary_dense:
+    provider: openai
+    env_key_name: VLLM_API_KEY
+    model: Octen-Embedding-8B
+    base_url: http://10.88.88.6:8000/v1
+    dimension: 4096
+  text_dense:
+    provider: openai
+    env_key_name: VLLM_API_KEY
+    model: Octen-Embedding-8B
+    base_url: http://10.88.88.6:8000/v1
+    dimension: 4096
+  text_sparse:
+    provider: Milvus
+    k1: 1.5
+    b: 0.75
+
+llm:
+  provider: openai
+  model: Qwen3.8-27B
+  env_key_name: VLLM_API_KEY
+  base_url: http://10.88.88.6:8001/v1
+  temperature: 0.1
