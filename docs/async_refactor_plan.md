@@ -34,6 +34,10 @@
 - **检索参数串台**：`MedicalHybridRetriever` 通过 `self.search_config.query = ...` 修改共享对象，并发时 A 请求可能用上 B 请求的 query。这是进程内多个协程共享同一个对象造成的，和会话无关，改成请求级拷贝就能解决，不需要 Redis。
 - **知识库重复创建**：`SimpleRAG`、`MultiDialogueRag`、`IngestionPipeline`、`DBFactory` 各自创建一个 `MedicalHybridKnowledgeBase`，同一进程里有多份 Milvus 连接、Embedding 客户端和 BM25 词表。
 - **评测与具体实现耦合**：`RagEvaluate` 放在 `rag/` 下，构造时必须传入 `BasicRAG`，上下文固定取 `metadata['document']`，其他库（例如后续的图谱 RAG、GraphRAG-Bench 里的 LightRAG / HippoRAG 等）没法接入同一套流程；`do_sample` 使用不带种子的 `shuffle()`，每次运行抽到的样本都不同，不同库之间的分数不可比。
+- **配置全耦合在一个文件里**：
+  - 所有配置（Milvus / Redis / PostgreSQL / Neo4j 连接、LLM、Embedding、数据字段映射、多轮对话、Agent）都写在同一个 `app_config.yaml` 里。换一个模型、换一套数据字段、换一个部署环境，都要改同一个文件，也没法只替换其中一部分。
+  - 代码层面也是整体耦合：几乎每个组件的构造函数都要求传入整个 `AppConfig`，实际只用其中一两段。还有跨段读取的情况，比如 `SearchGraph` 读的是 `multi_dialogue_rag.console_debug`，`MedicalAgent` 通过 `search_graph.config.agent` 读别人的配置，`AgentTools` 把整个 `AppConfig` 序列化后交给 `DBFactory` 做缓存 key。
+  - `AnnotationPipeline` 读取的 `config.data.batch_size` 在 `DataConfig` 里根本不存在，运行会直接报错。
 - **小 bug**：`_encode_query` 在 Milvus 托管 BM25 时执行 `data = data`，会报变量未定义；`add_documents` 在循环里逐条调用 Embedding API。
 
 ---
@@ -48,11 +52,12 @@
    - LangChain 链、LangGraph 图、ToolNode：`invoke` → `ainvoke`
 2. **CPU 密集或只有同步 SDK → `asyncio.to_thread`**：BM25 分词（pkuseg）、腾讯云搜索。
 3. **直接把原方法改成 `async def`，名字不变**，不保留同步版本。脚本和外部调用方统一用 `await` / `asyncio.run`。
-4. **知识库可注入**：各组件的构造函数增加可选参数 `kb`，传了就复用，不传就自己创建（向后兼容），调用方可以全局只用一个实例。删掉 `DBFactory`。
-5. **会话状态放进 Redis**（使用 `deploy/` 下已有的 Redis）：多轮对话历史、摘要、token 统计、Agent 跨轮状态全部存到 Redis，组件本身变成无状态。同一会话用 Redis 分布式锁串行执行，不同会话完全并行，多个进程、多个 worker 之间也能共享会话。
-6. **检索参数请求级拷贝**，不再修改共享对象。
-7. **流式由包提供**：多轮 RAG 和 Agent 各提供一个 `stream` 异步生成器，内部完成加锁、读写会话、执行链 / 图，外部只负责把事件转换成自己的协议（SSE、WebSocket 等）。
-8. **评测独立**：评测拆成独立的 `eval/` 模块，只依赖统一的"答题函数"和样本记录格式，不依赖任何具体的 RAG 实现；逐条串行执行，不做并发。
+4. **配置分离**：YAML 按领域拆成多个文件；组件构造函数只接收自己用到的那一段配置，不再接收整个 `AppConfig`。见 4.0。
+5. **依赖显式注入**：知识库 `kb`、会话存储 `store` 由调用方创建后传入各组件，组件内部不再自己创建（组件拿不到 Milvus / Redis 的连接配置，也不应该拿）。调用方可以全局只用一个实例。删掉 `DBFactory`。
+6. **会话状态放进 Redis**（使用 `deploy/` 下已有的 Redis）：多轮对话历史、摘要、token 统计、Agent 跨轮状态全部存到 Redis，组件本身变成无状态。同一会话用 Redis 分布式锁串行执行，不同会话完全并行，多个进程、多个 worker 之间也能共享会话。
+7. **检索参数请求级拷贝**，不再修改共享对象。
+8. **流式由包提供**：多轮 RAG 和 Agent 各提供一个 `stream` 异步生成器，内部完成加锁、读写会话、执行链 / 图，外部只负责把事件转换成自己的协议（SSE、WebSocket 等）。
+9. **评测独立**：评测拆成独立的 `eval/` 模块，只依赖统一的"答题函数"和样本记录格式，不依赖任何具体的 RAG 实现；逐条串行执行，不做并发。
 
 ---
 
@@ -60,21 +65,74 @@
 
 | 组件 | 改造前 | 改造后 |
 | --- | --- | --- |
-| `RedisSessionStore`（新增） | — | 会话存储，见 4.2 |
-| `MedicalHybridKnowledgeBase` | `search(req)`、`add_documents(docs)`、`build_index()`、`_create_collection()` | 同名方法全部 `async`；新增 `async close()` |
-| `IngestionPipeline(config)` | `run(records) -> bool` | `IngestionPipeline(config, kb=None)`；`async run(records)` |
-| `SimpleRAG(config, search_config=None)` | `answer(query, return_document)` | 增加 `kb=None` 参数；`async answer(...)`；`batch_answer` 改为 `asyncio.gather` 并发 |
-| `MultiDialogueRag(config, search_config=None)` | `answer(query, return_document, session_id)` | 增加 `kb=None`、`store=None` 参数；`async answer(...)`，会话数据存 Redis；新增 `stream(query, session_id)` |
-| `SearchGraph(config, power_model)` | `answer(query)`、`run(state)` | 增加 `kb=None` 参数；`async answer / run` |
-| `MedicalAgent(config, power_model)` | `answer(user_input)`，一个实例对应一个会话 | 增加 `kb=None`、`store=None` 参数；`async answer(user_input, session_id)`，**一个实例服务所有会话**；新增 `stream(user_input, session_id)` |
+| `ConfigLoader` | 读取单个 `app_config.yaml` | 读取配置目录下的多个 YAML，支持按文件覆盖，见 4.0；`ConfigLoader().config` 用法不变 |
+| `RedisSessionStore(redis)`（新增） | — | 会话存储，见 4.2 |
+| `MedicalHybridKnowledgeBase` | `(app_config)`；`search(req)`、`add_documents(docs)`、`build_index()`、`_create_collection()` | `(milvus, embedding)`；同名方法全部 `async`；新增 `async close()` |
+| `IngestionPipeline` | `(config)`；`run(records) -> bool` | `(data, kb)`；`async run(records)` |
+| `SimpleRAG` | `(config, search_config=None)`；`answer(query, return_document)` | `(llm, kb, search_config=None)`；`async answer(...)`；`batch_answer` 改为 `asyncio.gather` 并发 |
+| `MultiDialogueRag` | `(config, search_config=None)`；`answer(query, return_document, session_id)` | `(llm, dialogue, kb, store, search_config=None)`；`async answer(...)`，会话数据存 Redis；新增 `stream(query, session_id)` |
+| `SearchGraph` | `(config, power_model)`；`answer(query)`、`run(state)` | `(llm, agent, kb, power_model)`；`async answer / run` |
+| `MedicalAgent` | `(config, power_model)`；`answer(user_input)`，一个实例对应一个会话 | `(llm, agent, kb, store, power_model)`；`async answer(user_input, session_id)`，**一个实例服务所有会话**；新增 `stream(user_input, session_id)` |
 | `RagasRagEvaluate`（删除） | `RagasRagEvaluate(rag, dataset, llm, emb).do_evaluate(...)` | 由 `MedicalRag.eval` 替代：`load_samples` → `collect` → `score`，见 4.14 |
-| `SimpleAnnotator` / `AnnotationPipeline` | `annotate_single`、`annotate_dataset`、`run` | 全部 `async`，按 `batch_size` 限制并发 |
+| `SimpleAnnotator` / `AnnotationPipeline` | `AnnotationPipeline(config)`；`annotate_single`、`annotate_dataset`、`run` | `AnnotationPipeline(llm, batch_size=10)`；全部 `async`，按 `batch_size` 限制并发 |
 
-`store=None` 时按 `config.redis` 自动创建。返回值结构保持不变，上层只需要把 `x.answer(...)` 改成 `await x.answer(...)`；`MedicalAgent` 另外需要传 `session_id`。
+表中参数名即对应的配置段：`llm: LLMConfig`、`embedding: EmbeddingConfig`、`milvus: MilvusConfig`、`redis: RedisConfig`、`data: DataConfig`、`dialogue: MultiDialogueRagConfig`、`agent: AgentConfig`。返回值结构保持不变，上层只需要把 `x.answer(...)` 改成 `await x.answer(...)`；`MedicalAgent` 另外需要传 `session_id`。
+
+组装示例：
+
+```python
+cfg = ConfigLoader().config
+kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
+store = RedisSessionStore(cfg.redis)
+rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store)
+agent = MedicalAgent(cfg.llm, cfg.agent, kb, store, power_model=create_llm_client(cfg.llm))
+```
 
 ---
 
 ## 4. 逐模块改动
+
+### 4.0 `config/`：配置分离
+
+**文件拆分**：删除 `app_config.yaml`，在 `src/MedicalRag/config/` 下按领域拆成 5 个文件。**顶层 key 与原来完全一致**，所以 `AppConfig` 的结构不用改：
+
+| 文件 | 包含的顶层 key | 什么时候改 |
+| --- | --- | --- |
+| `storage.yaml` | `milvus`、`redis`、`postgres`、`neo4j` | 换部署环境 |
+| `models.yaml` | `llm`、`embedding` | 换模型 / 提供商 |
+| `data.yaml` | `data` | 换数据集的字段映射 |
+| `dialogue.yaml` | `multi_dialogue_rag` | 调整多轮对话策略 |
+| `agent.yaml` | `agent` | 调整 Agent 策略 |
+
+**加载方式**：`ConfigLoader(config_dir=None, overrides=())`：
+
+```python
+ConfigLoader()                                              # 默认读取包内 config/ 目录下所有 *.yaml
+ConfigLoader("my_conf/")                                    # 读取自己的配置目录
+ConfigLoader(overrides=["exp/models_qwen.yaml"])            # 默认配置 + 只替换模型配置
+```
+
+- 先读 `config_dir` 下所有 `*.yaml`，再按顺序读 `overrides` 里的文件；读到的顶层 key 合并进同一个 dict，**`overrides` 中的文件整段覆盖同名的顶层 key**。这样就能只替换某一个领域的配置，比如评测时换一份 `models.yaml` 对比不同模型。
+- 同一个目录内出现重复的顶层 key 直接报错，避免两个文件悄悄互相覆盖。
+- 支持环境变量 `MEDRAG_CONFIG_DIR` 指定默认目录。
+- 加载时记录每个顶层 key 来自哪个文件。`change(..., save=True)` 只把被修改的那几段写回各自的来源文件，不再把全部配置写进一个文件；`save_path` 改为目录参数，指定后写到该目录下的同名文件。
+- 读取 `deploy/.env` 的 `load_deploy_env()` 保持不变。
+
+**代码解耦**：组件只接收自己需要的配置段（见第 3 节的接口表），不再接收整个 `AppConfig`：
+
+| 组件 | 原来从 `AppConfig` 读取 | 改为直接接收 |
+| --- | --- | --- |
+| `MedicalHybridKnowledgeBase` | `milvus`、`embedding` | `milvus: MilvusConfig`、`embedding: EmbeddingConfig` |
+| `IngestionPipeline` | `data`、`embedding.text_sparse` | `data: DataConfig`、`kb`（稀疏词表检查改为通过 `kb` 进行） |
+| `BasicRAG` / `SimpleRAG` | `llm`、`milvus.collection_name` | `llm: LLMConfig`、`kb`（`collection_name` 从 `kb` 取） |
+| `MultiDialogueRag` | `llm`、`multi_dialogue_rag` | `llm: LLMConfig`、`dialogue: MultiDialogueRagConfig` |
+| `SearchGraph` | `llm`、`agent`、`multi_dialogue_rag.console_debug` | `llm: LLMConfig`、`agent: AgentConfig`；`console_debug` 挪到 `AgentConfig` 自己的字段 |
+| `MedicalAgent` | `llm`、`search_graph.config.agent` | `llm: LLMConfig`、`agent: AgentConfig` |
+| `AgentTools` | 整个 `AppConfig`（用于 `DBFactory` 缓存） | `kb`、`network_search_cnt: int` |
+| `AnnotationPipeline` | `llm`、`data.batch_size`（不存在的字段） | `llm: LLMConfig`、`batch_size: int = 10`（顺带修掉这个 bug） |
+| `RedisSessionStore` | — | `redis: RedisConfig` |
+
+`AppConfig` 只保留为 `ConfigLoader` 的汇总结果，方便调用方一次拿到所有配置段；包内组件不再依赖它。`SearchGraph.py` 里没有用到的 `ConfigLoader` 导入一并删除。
 
 ### 4.1 `core/utils.py`
 
@@ -88,7 +146,7 @@ if config.proxy:
 
 ### 4.2 新增 `core/session_store.py`：Redis 会话存储
 
-使用 `redis.asyncio`，连接信息直接复用 `config.redis.url()`（密码来自 `deploy/.env`）。整个文件只有两个类，预计 80 行左右。
+使用 `redis.asyncio`，构造时只接收 `RedisConfig`，连接信息直接复用 `redis.url()`（密码来自 `deploy/.env`）。整个文件只有两个类，预计 80 行左右。
 
 ```python
 class RedisSessionStore:
@@ -158,7 +216,7 @@ def aclient(self) -> AsyncMilvusClient:
 
 ### 4.6 `core/IngestionPipeline.py`
 
-`__init__(config, kb=None)`；`async run`：`await kb._create_collection()` → 分批 `await kb.add_documents(batch)` → `await kb.build_index()`。批次之间保持串行（瓶颈在 Embedding API 限流，单批内部已经是批量请求）。
+`__init__(data, kb)`；`async run`：`await kb._create_collection()` → 分批 `await kb.add_documents(batch)` → `await kb.build_index()`。批次之间保持串行（瓶颈在 Embedding API 限流，单批内部已经是批量请求）。
 
 ### 4.7 `core/DBFactory.py`：删除
 
@@ -168,7 +226,7 @@ def aclient(self) -> AsyncMilvusClient:
 
 - 抽象方法 `answer` 声明为 `async`。
 - `batch_answer` 改为 `await asyncio.gather(*(self.answer(q, ...) for q in queries))`。
-- 构造函数接收 `kb=None`，统一在基类里执行 `self.knowledge_base = kb or MedicalHybridKnowledgeBase(config)`，两个子类不再各自创建。
+- 构造函数改为 `(llm, kb, search_config=None)`，由基类统一保存 `kb`，两个子类不再各自创建知识库；默认检索配置里的 `collection_name` 从 `kb` 取。
 
 ### 4.9 `rag/SimpleRag.py`
 
@@ -234,7 +292,7 @@ async def stream(self, query, session_id="default") -> AsyncIterator[dict]:
 
 ### 4.12 `agent/tools/`
 
-- `AgentTools.__init__(app_config, kb)`。
+- `AgentTools.__init__(kb, network_search_cnt)`。
 - `database_search` → `async def`，`await self.kb.search(search_config)`。
 - `web_search` → `async def`，`await asyncio.to_thread(self.WEBSEARCH_FUNC, query, cnt)`。`TencentSearch.py` 本身不动。
 - `calculator` 是纯 CPU，不改。
@@ -369,8 +427,7 @@ def from_medical_rag(rag, context_field="document") -> AnswerFn:
 
 | 模块 | 原因 |
 | --- | --- |
-| `config/loader.py` | 只在启动时读一次 YAML 和 `.env`，没必要异步化 |
-| `config/models.py` | 仅给 `RedisConfig` 加 `session_ttl` 一个字段 |
+| `config/`（异步化） | 只在启动时读一次 YAML 和 `.env`，没必要异步化；拆分改动见 4.0，`models.py` 只新增 `RedisConfig.session_ttl`、`AgentConfig.console_debug` 两个字段 |
 | `embed/sparse.py`、`embed/bm25.py` | CPU 密集（pkuseg 分词、多进程建词表），由调用方用 `to_thread` 包装 |
 | `prompts/templates.py`、`rag/utils.py`、`agent/utils.py` | 纯字符串 / 纯计算 |
 | `agent/tools/TencentSearch.py` | 只有同步 SDK，由 `AgentTools` 用 `to_thread` 包装 |
@@ -387,6 +444,7 @@ def from_medical_rag(rag, context_field="document") -> AnswerFn:
 
 ## 7. 实施顺序
 
+0. **config**：拆分 YAML、改造 `ConfigLoader`；确认拆分前后加载出的 `AppConfig` 完全相等。
 1. **core**：`session_store`（新增）+ `KnowledgeBase` + `insert` + `HybridRetriever` + `IngestionPipeline`，删除 `DBFactory`；用 `scripts/02`、`03` 验证入库、检索与改造前一致，给 `session_store` 补单元测试。
 2. **rag**：`RagBase` + `SimpleRag` + `MultiDialogueRag`；用 `scripts/04`、`06` 验证。
 3. **agent**：`AgentTools` + `SearchGraph` + `MedicalAgent`；用 `scripts/07`、`08` 验证。
@@ -398,6 +456,10 @@ def from_medical_rag(rag, context_field="document") -> AnswerFn:
 
 ## 8. 验证方式
 
+- **配置拆分**：
+  - 拆分后 `ConfigLoader().config` 与拆分前读取 `app_config.yaml` 得到的 `AppConfig` 完全相等；
+  - 用 `ConfigLoader(overrides=["xxx/models.yaml"])` 只替换模型配置时，其他配置段保持不变；
+  - 同一目录下两个文件包含同一个顶层 key 时，加载报错。
 - **功能一致**：每一步改造前后对同一批问题跑脚本，对比检索到的文档 `pk` 与回答。
 - **会话存储**：
   - 同一 `session_id` 用两个新建的 `MultiDialogueRag` / `MedicalAgent` 实例先后提问，第二个实例能接上第一个实例的历史；
