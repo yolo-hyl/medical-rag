@@ -2,17 +2,17 @@
 """
 自动标注模块（基于langchain简化实现）
 """
+import asyncio
 import json
 import logging
 import re
 from typing import List, Dict, Any, Optional
-from pathlib import Path
 from datasets import Dataset, load_dataset
 from tqdm import tqdm
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..config.models import AppConfig, LLMConfig
-from ..core.utils import create_llm_client  
+from ..config.models import LLMConfig
+from ..core.utils import create_llm_client
 from ..prompts.templates import get_prompt_template, parse_annotation_result
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class SimpleAnnotator:
         
         return True
     
-    def annotate_single(self, question: str, answer: str) -> Optional[Dict[str, Any]]:
+    async def annotate_single(self, question: str, answer: str) -> Optional[Dict[str, Any]]:
         """标注单个样本"""
         for attempt in range(self.max_retries):
             try:
@@ -110,7 +110,7 @@ class SimpleAnnotator:
                     messages = [HumanMessage(content=formatted_prompt)]
                 
                 # 调用LLM
-                response = self.llm.invoke(messages)
+                response = await self.llm.ainvoke(messages)
                 response_text = response.content
                 
                 # 解析响应
@@ -132,78 +132,80 @@ class SimpleAnnotator:
         self.failed_count += 1
         return None
     
-    def annotate_dataset(
-        self, 
-        dataset: Dataset, 
+    async def annotate_dataset(
+        self,
+        dataset: Dataset,
         question_field: str = "question",
         answer_field: str = "answer",
         save_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """标注整个数据集"""
+        """标注整个数据集，按 batch_size 限制并发"""
         logger.info(f"开始标注数据集，共 {len(dataset)} 条数据")
-        
+
         annotated_results = []
         self.success_count = 0
         self.failed_count = 0
-        
-        # 处理数据
-        with tqdm(total=len(dataset), desc="标注进度") as pbar:
-            for i, record in enumerate(dataset):
-                question = record.get(question_field, "")
-                answer = record.get(answer_field, "")
-                
-                if not question or not answer:
-                    logger.warning(f"跳过空记录: index={i}")
-                    pbar.update(1)
-                    continue
-                
-                # 执行标注
-                annotation = self.annotate_single(question, answer)
-                
-                if annotation:
-                    # 构建结果记录
-                    result = {
-                        "id": record.get("id", f"item_{i}"),
-                        "question": question,
-                        "answer": answer,
-                        **annotation  # 包含departments, categories等
-                    }
-                    
-                    # 保留原始记录的其他字段
-                    for key, value in record.items():
-                        if key not in result:
-                            result[key] = value
-                    
-                    annotated_results.append(result)
-                
+        semaphore = asyncio.Semaphore(self.batch_size)
+
+        async def annotate_record(index: int, record: dict) -> Optional[Dict[str, Any]]:
+            question = record.get(question_field, "")
+            answer = record.get(answer_field, "")
+            if not question or not answer:
+                logger.warning(f"跳过空记录: index={index}")
+                return None
+
+            async with semaphore:
+                annotation = await self.annotate_single(question, answer)
+            if not annotation:
+                return None
+
+            # 构建结果记录
+            result = {
+                "id": record.get("id", f"item_{index}"),
+                "question": question,
+                "answer": answer,
+                **annotation  # 包含departments, categories等
+            }
+            # 保留原始记录的其他字段
+            for key, value in record.items():
+                if key not in result:
+                    result[key] = value
+            return result
+
+        tasks = [
+            asyncio.create_task(annotate_record(i, record))
+            for i, record in enumerate(dataset)
+        ]
+        with tqdm(total=len(tasks), desc="标注进度") as pbar:
+            for task in tasks:
+                result = await task
                 pbar.update(1)
-                
+                if result is None:
+                    continue
+                annotated_results.append(result)
+
                 # 定期保存中间结果
                 if save_path and len(annotated_results) % 100 == 0:
                     temp_path = f"{save_path}.temp"
                     with open(temp_path, 'w', encoding='utf-8') as f:
                         json.dump(annotated_results, f, ensure_ascii=False, indent=2)
-        
+
         # 保存最终结果
         if save_path:
             with open(save_path, 'w', encoding='utf-8') as f:
                 json.dump(annotated_results, f, ensure_ascii=False, indent=2)
             logger.info(f"标注结果已保存到: {save_path}")
-        
+
         logger.info(f"标注完成！成功: {self.success_count}, 失败: {self.failed_count}")
         return annotated_results
 
 class AnnotationPipeline:
     """标注流水线"""
     
-    def __init__(self, config: AppConfig):
-        self.config = config
-        self.annotator = SimpleAnnotator(
-            llm_config=config.llm,
-            batch_size=config.data.batch_size
-        )
-    
-    def run(
+    def __init__(self, llm: LLMConfig, batch_size: int = 10):
+        self.annotator = SimpleAnnotator(llm_config=llm, batch_size=batch_size)
+
+    async def run(
         self,
         data_path: str,
         output_path: str,
@@ -225,7 +227,7 @@ class AnnotationPipeline:
                 raise ValueError(f"不支持的文件格式: {data_path}")
             
             # 2. 执行标注
-            results = self.annotator.annotate_dataset(
+            results = await self.annotator.annotate_dataset(
                 dataset=dataset,
                 question_field=question_field,
                 answer_field=answer_field,
@@ -240,13 +242,14 @@ class AnnotationPipeline:
             return False
 
 # 便捷函数
-def run_annotation(
-    config: AppConfig,
+async def run_annotation(
+    llm: LLMConfig,
     data_path: str,
     output_path: str,
     question_field: str = "question",
-    answer_field: str = "answer"
+    answer_field: str = "answer",
+    batch_size: int = 10
 ) -> bool:
     """运行标注的便捷函数"""
-    pipeline = AnnotationPipeline(config)
-    return pipeline.run(data_path, output_path, question_field, answer_field)
+    pipeline = AnnotationPipeline(llm, batch_size)
+    return await pipeline.run(data_path, output_path, question_field, answer_field)
