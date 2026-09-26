@@ -3,8 +3,7 @@
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Iterable, Callable, Optional
-from pymilvus import MilvusClient
-from pymilvus.milvus_client.index import IndexParams
+from pymilvus import AsyncMilvusClient
 from tqdm import tqdm
 
 
@@ -38,8 +37,8 @@ def _maybe_update_progress(pbar, progress_fn, inc: int, done_total: list[int]):
             pass
 
 
-def insert_rows(
-    client: MilvusClient,
+async def insert_rows(
+    client: AsyncMilvusClient,
     collection_name: str,
     rows: List[Dict[str, Any]],
     show_progress: bool = False,
@@ -49,7 +48,7 @@ def insert_rows(
     total = len(rows)
     done_total = [0, total]
     if "pk" in rows[0]:
-        insert_rows_has_id(
+        await insert_rows_has_id(
             client,collection_name,
             rows,show_progress
         )
@@ -60,7 +59,7 @@ def insert_rows(
 
     try:
         for batch in _chunks(rows, bs):
-            _ = client.insert(collection_name=collection_name, data=batch)
+            _ = await client.insert(collection_name=collection_name, data=batch)
             _maybe_update_progress(pbar, progress_fn, len(batch), done_total)
     finally:
         if pbar is not None:
@@ -68,8 +67,8 @@ def insert_rows(
             
 
 
-def insert_rows_has_id(
-    client: MilvusClient,
+async def insert_rows_has_id(
+    client: AsyncMilvusClient,
     collection_name: str,
     rows: List[Dict[str, Any]],
     show_progress: bool = False,
@@ -84,22 +83,16 @@ def insert_rows_has_id(
         pbar = tqdm(total=total, desc="Milvus upsert", unit="row")
 
     try:
-        if getattr(client, "upsert", None):
-            for batch in _chunks(rows, bs):
-                _ = client.upsert(collection_name=collection_name, data=batch)  # type: ignore[attr-defined]
-                _maybe_update_progress(pbar, progress_fn, len(batch), done_total)
-        else:
-            # 兼容老版本：降级为 insert，但仍保留进度
-            for batch in _chunks(rows, bs):
-                _ = client.insert(collection_name=collection_name, data=batch)
-                _maybe_update_progress(pbar, progress_fn, len(batch), done_total)
+        for batch in _chunks(rows, bs):
+            _ = await client.upsert(collection_name=collection_name, data=batch)
+            _maybe_update_progress(pbar, progress_fn, len(batch), done_total)
     finally:
         if pbar is not None:
             pbar.close()
 
 
-def delete_by_ids(
-    client: MilvusClient,
+async def delete_by_ids(
+    client: AsyncMilvusClient,
     collection_name: str,
     ids: List[str],
     id_field: str,
@@ -124,7 +117,7 @@ def delete_by_ids(
         for batch in _chunks(ids, bs):
             id_list = ", ".join(f'"{i}"' for i in batch)
             expr = f'{id_field} in [{id_list}]'
-            client.delete(collection_name=collection_name, expr=expr)
+            await client.delete(collection_name=collection_name, filter=expr)
             _maybe_update_progress(pbar, progress_fn, len(batch), done_total)
     finally:
         if pbar is not None:

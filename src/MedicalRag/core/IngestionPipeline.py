@@ -2,12 +2,11 @@ import logging
 from typing import List, Dict, Any
 from langchain_core.documents import Document
 from tqdm import tqdm
-from ..config.models import AppConfig, DataConfig
+from ..config.models import DataConfig
 import hashlib
 from functools import lru_cache
 from pathlib import Path
 from .KnowledgeBase import MedicalHybridKnowledgeBase
-from ..embed.sparse import Vocabulary
 
 get_resolve_path = lambda path, file=__file__: (Path(file).parent / Path(path)).resolve()
 
@@ -99,43 +98,40 @@ def prepare_multi_vector_documents(data_config: DataConfig, raw_documents: List[
 class IngestionPipeline:
     """高级入库流水线 - 使用多向量字段"""
     
-    def __init__(self, config: AppConfig):
-        self.config = config
-        self.kb = MedicalHybridKnowledgeBase(config)
-    
-    def run(self, raw_data: List[Dict[str, Any]]) -> bool:
+    def __init__(self, data: DataConfig, kb: MedicalHybridKnowledgeBase):
+        self.data_config = data
+        self.kb = kb
+
+    async def run(self, raw_data: List[Dict[str, Any]]) -> bool:
         """运行高级入库流水线"""
-        
-        if self.config.embedding.text_sparse.provider == "self":
-            _vocab = Vocabulary.load(self.config.embedding.text_sparse.vocab_path_or_name)
-            if _vocab is None:  # 未完成初始化
-                raise RuntimeError("请完成词表初始化，或者把稀疏向量交给Milvus管理")
+
+        if not self.kb.sparse_vocab_ready:
+            raise RuntimeError("请完成词表初始化，或者把稀疏向量交给Milvus管理")
         try:
             # 1. 初始化多向量字段集合
             logger.info("初始化多向量Milvus集合...")
-            _ = self.kb._create_collection()
-            
+            await self.kb._create_collection()
+
             # 2. 处理数据
             logger.info("预处理多向量字段文档...")
-            documents = prepare_multi_vector_documents(data_config=self.config.data, raw_documents=raw_data)
-            
-            # 3. 批量插入
+            documents = prepare_multi_vector_documents(data_config=self.data_config, raw_documents=raw_data)
+
+            # 3. 批量插入：批内已是批量请求，批次之间保持串行以免打爆 Embedding API 限流
             logger.info(f"开始插入 {len(documents)} 个文档...")
             batch_size = 10
             total_inserted = 0
-            
+
             for i in tqdm(range(0, len(documents), batch_size)):
                 batch = documents[i:i + batch_size]
-                ids = self.kb.add_documents(batch)
-                total_inserted += ids
-            
+                total_inserted += await self.kb.add_documents(batch)
+
             logger.info(f"开始构建索引")
-            self.kb.build_index()
-            
+            await self.kb.build_index()
+
             logger.info(f"高级入库完成！总共插入 {total_inserted} 个文档")
-            
+
             return True
-            
+
         except Exception:
             logger.exception("高级入库流水线失败")
             return False

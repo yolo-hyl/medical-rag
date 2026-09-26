@@ -7,6 +7,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings  
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from ..config.models import LLMConfig, DenseConfig
+import httpx
 import os
 
 logger = logging.getLogger(__name__)
@@ -17,8 +18,10 @@ def create_llm_client(config: LLMConfig) -> BaseChatModel:
         kwargs = {
             "model": config.model,
             "temperature": config.temperature,
+            # 流式调用时也要求返回 usage，否则摘要压缩依赖的 token 统计会缺失
+            "stream_usage": True,
         }
-        
+
         if config.env_key_name:
             kwargs["api_key"] = os.environ[config.env_key_name]
         if config.base_url:
@@ -26,7 +29,9 @@ def create_llm_client(config: LLMConfig) -> BaseChatModel:
         if config.max_tokens:
             kwargs["max_tokens"] = config.max_tokens
         if config.proxy:
-            kwargs["http_client"] = {"proxies": {"http": config.proxy, "https": config.proxy}}
+            # 同步和异步请求各自需要一个客户端，异步调用走 http_async_client
+            kwargs["http_client"] = httpx.Client(proxy=config.proxy)
+            kwargs["http_async_client"] = httpx.AsyncClient(proxy=config.proxy)
         
         return ChatOpenAI(**kwargs)
         
@@ -62,7 +67,9 @@ def create_embedding_client(config: DenseConfig) -> Embeddings:
             if "api.openai.com" not in config.base_url:
                 kwargs["check_embedding_ctx_length"] = False
         if config.proxy:
-            kwargs["http_client"] = {"proxies": {"http": config.proxy, "https": config.proxy}}
+            # 同步和异步请求各自需要一个客户端，异步调用走 http_async_client
+            kwargs["http_client"] = httpx.Client(proxy=config.proxy)
+            kwargs["http_async_client"] = httpx.AsyncClient(proxy=config.proxy)
         
         return OpenAIEmbeddings(**kwargs)
         
