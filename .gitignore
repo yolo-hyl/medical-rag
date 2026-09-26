@@ -15,6 +15,9 @@
 log
 vocab.pkl.gz
 
+# 本地联调脚本，不进仓库
+/debug/
+
 # web
 # dependencies
 node_modules/
