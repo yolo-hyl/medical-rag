@@ -1,6 +1,6 @@
 # MedicalRag 包异步化改造方案（v2.0.0-anyc）
 
-> 目标：把 `MedicalRag` 包的核心 RAG 业务能力（检索、入库、单轮 / 多轮 RAG、Agent、标注、评测）改成原生 `async`，让外部业务方能在一个事件循环里高并发地调用。
+> 目标：把 `MedicalRag` 包的核心 RAG 业务能力（检索、入库、单轮 / 多轮 RAG、Agent、标注）改成原生 `async`，让外部业务方能在一个事件循环里高并发地调用；同时把评测从 RAG 实现中拆出来，做成各个库共用的统一评测流程（评测本身不追求并发）。
 > 定位：`MedicalRag` 只负责核心 RAG 业务逻辑，不包含任何 API / 服务代码。HTTP 接口、鉴权、SSE 协议等由外部业务自行实现（当前示例在 `software/backend/`），**本方案不涉及 `software/` 的内容**。包需要做的，是给外部提供完整、无需访问私有字段的异步接口（包括流式接口）。
 > 基线：`v2.0.0` @ `19ce2de`（`api/` 已移出包，放到 `software/backend/`）。`core/services.py` 没有必要保留，已在本分支删除，并清理了引用它的 `scripts/00_check_services.py`、`tests/test_services.py` 中的用例和 `software/backend/run_api.py` 里的 `preflight()`（不清理会导致导入失败）。
 > 原则：**只改 IO 路径，不引入新框架，不保留同步 / 异步两份实现。**
@@ -18,7 +18,7 @@
 | `core/HybridRetriever.py` | 只实现了 `_get_relevant_documents`，`ainvoke` 时会被 LangChain 丢进线程池 |
 | `core/IngestionPipeline.py` | 串行建表 → 入库 → 建索引 |
 | `rag/SimpleRag.py`、`rag/MultiDialogueRag.py` | `rag_chain.invoke`、`llm.invoke`（改写、生成、摘要） |
-| `rag/RagEvaluate.py` | 循环里逐条 `rag.answer` |
+| `rag/RagEvaluate.py` | 循环里逐条 `rag.answer`；与 `BasicRAG` 耦合（见下文"评测与具体实现耦合"） |
 | `agent/SearchGraph.py`、`agent/MedicalAgent.py` | 每个图节点都是同步 `llm.invoke` / `tool_node.invoke`，图用 `app.invoke` |
 | `agent/tools/*` | `database_search` 同步查 Milvus；腾讯云搜索 SDK 只有同步版本 |
 | `data/annotation.py` | 逐条 `llm.invoke`，整个数据集串行标注 |
@@ -33,6 +33,7 @@
 - **缺少对外的流式接口**：包里没有流式方法，原来的 API 层只能直接调用 `rag_chain.astream_events`、`agent.app.astream`，还要读写 `_running_summaries`、`_maybe_compress_history`、`_update_tokens_metadata`、`agent.state` 这些内部实现。API 移出包之后，这些都应该由包自己封装好。
 - **检索参数串台**：`MedicalHybridRetriever` 通过 `self.search_config.query = ...` 修改共享对象，并发时 A 请求可能用上 B 请求的 query。这是进程内多个协程共享同一个对象造成的，和会话无关，改成请求级拷贝就能解决，不需要 Redis。
 - **知识库重复创建**：`SimpleRAG`、`MultiDialogueRag`、`IngestionPipeline`、`DBFactory` 各自创建一个 `MedicalHybridKnowledgeBase`，同一进程里有多份 Milvus 连接、Embedding 客户端和 BM25 词表。
+- **评测与具体实现耦合**：`RagEvaluate` 放在 `rag/` 下，构造时必须传入 `BasicRAG`，上下文固定取 `metadata['document']`，其他库（例如后续的图谱 RAG、GraphRAG-Bench 里的 LightRAG / HippoRAG 等）没法接入同一套流程；`do_sample` 使用不带种子的 `shuffle()`，每次运行抽到的样本都不同，不同库之间的分数不可比。
 - **小 bug**：`_encode_query` 在 Milvus 托管 BM25 时执行 `data = data`，会报变量未定义；`add_documents` 在循环里逐条调用 Embedding API。
 
 ---
@@ -45,12 +46,13 @@
    - Milvus 读写：`AsyncMilvusClient`（现有的 pymilvus 2.5.14 已自带）
    - Redis：`redis.asyncio`（现有依赖 `redis>=5.0` 自带）
    - LangChain 链、LangGraph 图、ToolNode：`invoke` → `ainvoke`
-2. **CPU 密集或只有同步 SDK → `asyncio.to_thread`**：BM25 分词（pkuseg）、腾讯云搜索、RAGAS 评测。
+2. **CPU 密集或只有同步 SDK → `asyncio.to_thread`**：BM25 分词（pkuseg）、腾讯云搜索。
 3. **直接把原方法改成 `async def`，名字不变**，不保留同步版本。脚本和外部调用方统一用 `await` / `asyncio.run`。
 4. **知识库可注入**：各组件的构造函数增加可选参数 `kb`，传了就复用，不传就自己创建（向后兼容），调用方可以全局只用一个实例。删掉 `DBFactory`。
 5. **会话状态放进 Redis**（使用 `deploy/` 下已有的 Redis）：多轮对话历史、摘要、token 统计、Agent 跨轮状态全部存到 Redis，组件本身变成无状态。同一会话用 Redis 分布式锁串行执行，不同会话完全并行，多个进程、多个 worker 之间也能共享会话。
 6. **检索参数请求级拷贝**，不再修改共享对象。
 7. **流式由包提供**：多轮 RAG 和 Agent 各提供一个 `stream` 异步生成器，内部完成加锁、读写会话、执行链 / 图，外部只负责把事件转换成自己的协议（SSE、WebSocket 等）。
+8. **评测独立**：评测拆成独立的 `eval/` 模块，只依赖统一的"答题函数"和样本记录格式，不依赖任何具体的 RAG 实现；逐条串行执行，不做并发。
 
 ---
 
@@ -65,7 +67,7 @@
 | `MultiDialogueRag(config, search_config=None)` | `answer(query, return_document, session_id)` | 增加 `kb=None`、`store=None` 参数；`async answer(...)`，会话数据存 Redis；新增 `stream(query, session_id)` |
 | `SearchGraph(config, power_model)` | `answer(query)`、`run(state)` | 增加 `kb=None` 参数；`async answer / run` |
 | `MedicalAgent(config, power_model)` | `answer(user_input)`，一个实例对应一个会话 | 增加 `kb=None`、`store=None` 参数；`async answer(user_input, session_id)`，**一个实例服务所有会话**；新增 `stream(user_input, session_id)` |
-| `RagasRagEvaluate` | `do_evaluate(...)` | `async do_evaluate(...)` |
+| `RagasRagEvaluate`（删除） | `RagasRagEvaluate(rag, dataset, llm, emb).do_evaluate(...)` | 由 `MedicalRag.eval` 替代：`load_samples` → `collect` → `score`，见 4.14 |
 | `SimpleAnnotator` / `AnnotationPipeline` | `annotate_single`、`annotate_dataset`、`run` | 全部 `async`，按 `batch_size` 限制并发 |
 
 `store=None` 时按 `config.redis` 自动创建。返回值结构保持不变，上层只需要把 `x.answer(...)` 改成 `await x.answer(...)`；`MedicalAgent` 另外需要传 `session_id`。
@@ -289,11 +291,71 @@ async def stream(self, query, session_id="default") -> AsyncIterator[dict]:
   ```
 - 删除 `self.state` 和 `_reset_state`（后者的内容挪到 `load_state` 的初始值里）。`load_state` / `save_state` 改为私有方法 `_load_state` / `_save_state`，外部只需要用 `answer` 和 `stream`。
 
-### 4.14 `rag/RagEvaluate.py`
+### 4.14 新增 `eval/`：独立的统一评测模块（替代 `rag/RagEvaluate.py`）
 
-`do_evaluate` → `async`：
-1. 先用 `asyncio.gather` + `Semaphore` 并发获取所有样本的答案（`await self.rag.answer(...)`）；
-2. `ragas.evaluate(...)` 内部自带事件循环（`nest_asyncio`），不能在当前 loop 里直接跑，用 `await asyncio.to_thread(evaluate, ...)`。
+**目标**：不同的库（当前的 Milvus 混合检索 RAG、后续的图谱 RAG、GraphRAG-Bench 里的第三方实现等）走完全相同的评测流程：同一批样本、同一套指标、同一个评测模型，分数才可以横向比较。评测只追求一致、可复现，**不做并发**。
+
+**思路**：把评测拆成"生成答案"和"打分"两步，中间用一份 JSONL 样本记录文件衔接。各个库只负责按统一格式给出答案和上下文，打分部分完全共用。
+
+```
+src/MedicalRag/eval/
+├── __init__.py
+├── runner.py      # 样本定义、采样、收集答案、保存 / 读取、打分；不依赖任何具体 RAG 实现
+└── adapters.py    # 把具体实现包装成统一的答题函数（先提供 MedicalRag 的）
+```
+
+`runner.py` 只依赖 `ragas`、`datasets`、LangChain 基础类型，**不 import `MedicalRag` 的其他模块**；以后如果要把评测移出包，可以整体搬走。
+
+**统一样本格式**（也是 JSONL 每一行的格式）：
+
+```python
+@dataclass
+class EvalSample:
+    question: str
+    reference: str                 # 参考答案
+    answer: str = ""               # 被测系统的回答
+    contexts: list[str] = field(default_factory=list)   # 被测系统检索到的上下文
+```
+
+**统一答题函数**：输入问题，返回 `(answer, contexts)`，同步、异步函数都可以：
+
+```python
+AnswerFn = Callable[[str], tuple[str, list[str]] | Awaitable[tuple[str, list[str]]]]
+```
+
+**流程函数**：
+
+```python
+def load_samples(path, question_field, reference_field, sample_size=None, seed=42) -> list[EvalSample]
+    # 读取数据集并采样；固定 seed，保证每个库拿到完全相同的样本
+
+async def collect(samples, answer_fn) -> list[EvalSample]
+    # 逐条串行调用 answer_fn，填入 answer / contexts；单条失败记录错误信息后继续
+
+def save_samples(samples, path) / load_saved(path) -> list[EvalSample]
+    # JSONL 读写：答案落盘后，可以在不重新生成的情况下重复打分、对比不同的库
+
+def score(samples, llm, embeddings, metrics=None) -> EvaluationResult
+    # 用 ragas 打分，默认沿用现在的 4 个指标：
+    # AnswerRelevancy / Faithfulness / ContextRecall / ContextPrecision
+```
+
+- `score` 是同步函数，在事件循环之外调用（先 `asyncio.run(collect(...))`，再 `score(...)`），避免 ragas 自带的事件循环和调用方冲突。
+- 其他库如果本身已经能输出这种格式的 JSONL（比如自带脚本的第三方实现），可以跳过 `collect`，直接 `load_saved` → `score`。
+
+**`adapters.py`**：先只提供 MedicalRag 自己的适配器：
+
+```python
+def from_medical_rag(rag, context_field="document") -> AnswerFn:
+    async def answer_fn(question):
+        r = await rag.answer(question, return_document=True)
+        return r["answer"], [d.metadata.get(context_field) or d.page_content for d in r["documents"]]
+    return answer_fn
+```
+
+多轮 RAG 评测时，每个问题使用独立的 `session_id`，避免题与题之间共享历史。
+
+**删除**：`rag/RagEvaluate.py`。
 
 ### 4.15 `data/annotation.py`
 
@@ -326,10 +388,11 @@ async def stream(self, query, session_id="default") -> AsyncIterator[dict]:
 ## 7. 实施顺序
 
 1. **core**：`session_store`（新增）+ `KnowledgeBase` + `insert` + `HybridRetriever` + `IngestionPipeline`，删除 `DBFactory`；用 `scripts/02`、`03` 验证入库、检索与改造前一致，给 `session_store` 补单元测试。
-2. **rag**：`RagBase` + `SimpleRag` + `MultiDialogueRag` + `RagEvaluate`；用 `scripts/04`、`05`、`06` 验证。
+2. **rag**：`RagBase` + `SimpleRag` + `MultiDialogueRag`；用 `scripts/04`、`06` 验证。
 3. **agent**：`AgentTools` + `SearchGraph` + `MedicalAgent`；用 `scripts/07`、`08` 验证。
 4. **data**：`annotation.py`。
-5. **scripts**：入口改为 `asyncio.run(main())`（随前面各步一起改）。
+5. **eval**：新增 `eval/`，删除 `rag/RagEvaluate.py`；`scripts/05_eval_rag.py` 改为 `load_samples` → `collect` → `save_samples` → `score`，指标与原 `RagasRagEvaluate` 保持一致。
+6. **scripts**：入口改为 `asyncio.run(main())`（随前面各步一起改）。
 
 `software/` 不在本方案范围内。包的接口变化（方法变为 `async`、`MedicalAgent` 改为无状态并新增 `session_id`、新增 `stream`）会导致 `software/backend` 需要跟着适配，这部分留给外部业务实现。
 
@@ -341,5 +404,6 @@ async def stream(self, query, session_id="default") -> AsyncIterator[dict]:
   - 同一 `session_id` 同时发两个请求，历史中两轮问答完整且不交错；
   - 在 Redis 中能看到对应的 key 和 TTL。
 - **流式接口**：`MultiDialogueRag.stream` / `MedicalAgent.stream` 能按顺序产出各阶段事件，结束后 Redis 中的历史和状态与 `answer` 的结果一致。
+- **评测一致性**：同一数据集、同一 `seed` 多次 `load_samples` 得到完全相同的样本；对同一份 JSONL 重复 `score`，指标结果一致（在评测模型 `temperature=0` 的前提下）。
 - **并发收益**：写一个小脚本，用 `asyncio.gather` 同时发起 N 个 `SimpleRAG.answer`，对比改造前（在线程池里跑同步版）和改造后的总耗时。
 - **不阻塞事件循环**：开启 `loop.set_debug(True)` 并设置 `slow_callback_duration = 0.1`，并发测试期间日志中不应出现超过 100ms 的慢回调。
