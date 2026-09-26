@@ -1,8 +1,8 @@
 # MedicalRag 包异步化改造方案（v2.0.0-anyc）
 
-> 目标：把 `MedicalRag` 包对外暴露的能力（检索、入库、RAG 问答、Agent、标注、评测）改成原生 `async`，让任何上层调用方都能在一个事件循环里高并发地调用它。
-> 范围：只改 `src/MedicalRag` 包本身。`software/`（`run_api.py`、前端）和包内的 `MedicalRag/api/`（FastAPI 服务）只是最后用来展示的调用方，不属于这次改造的重点，最后只适配调用点。
-> 基线：`v2.0.0` @ `653819e`（已包含 `deploy/` 中间件）。`core/services.py` 没有必要保留，已在本分支删除，同时清理了 `scripts/00_check_services.py`、`tests/test_services.py` 中依赖它的用例，以及 `software/run_api.py` 里的 `preflight()`。
+> 目标：把 `MedicalRag` 包的核心 RAG 业务能力（检索、入库、单轮 / 多轮 RAG、Agent、标注、评测）改成原生 `async`，让外部业务方能在一个事件循环里高并发地调用。
+> 定位：`MedicalRag` 只负责核心 RAG 业务逻辑，不包含任何 API / 服务代码。HTTP 接口、鉴权、SSE 协议等由外部业务自行实现（当前示例在 `software/backend/`），**本方案不涉及 `software/` 的内容**。包需要做的，是给外部提供完整、无需访问私有字段的异步接口（包括流式接口）。
+> 基线：`v2.0.0` @ `19ce2de`（`api/` 已移出包，放到 `software/backend/`）。`core/services.py` 没有必要保留，已在本分支删除，并清理了引用它的 `scripts/00_check_services.py`、`tests/test_services.py` 中的用例和 `software/backend/run_api.py` 里的 `preflight()`（不清理会导致导入失败）。
 > 原则：**只改 IO 路径，不引入新框架，不保留同步 / 异步两份实现。**
 
 ---
@@ -29,7 +29,8 @@
   - 同一会话的并发请求会交错读写，把历史和摘要写乱；
   - `MultiDialogueRag.avg_tokens_per_char` 是实例级字段，所有会话共用一个值，会话之间会互相影响；
   - `MedicalAgent` 只能一个会话对应一个实例，上层要自己维护 `session_id → MedicalAgent` 字典，而且内存只增不减；
-  - 状态绑定在单个进程上，所以服务只能开 `workers=1`。
+  - 状态绑定在单个进程上，外部业务无法多进程 / 多实例部署。
+- **缺少对外的流式接口**：包里没有流式方法，原来的 API 层只能直接调用 `rag_chain.astream_events`、`agent.app.astream`，还要读写 `_running_summaries`、`_maybe_compress_history`、`_update_tokens_metadata`、`agent.state` 这些内部实现。API 移出包之后，这些都应该由包自己封装好。
 - **检索参数串台**：`MedicalHybridRetriever` 通过 `self.search_config.query = ...` 修改共享对象，并发时 A 请求可能用上 B 请求的 query。这是进程内多个协程共享同一个对象造成的，和会话无关，改成请求级拷贝就能解决，不需要 Redis。
 - **知识库重复创建**：`SimpleRAG`、`MultiDialogueRag`、`IngestionPipeline`、`DBFactory` 各自创建一个 `MedicalHybridKnowledgeBase`，同一进程里有多份 Milvus 连接、Embedding 客户端和 BM25 词表。
 - **小 bug**：`_encode_query` 在 Milvus 托管 BM25 时执行 `data = data`，会报变量未定义；`add_documents` 在循环里逐条调用 Embedding API。
@@ -45,14 +46,15 @@
    - Redis：`redis.asyncio`（现有依赖 `redis>=5.0` 自带）
    - LangChain 链、LangGraph 图、ToolNode：`invoke` → `ainvoke`
 2. **CPU 密集或只有同步 SDK → `asyncio.to_thread`**：BM25 分词（pkuseg）、腾讯云搜索、RAGAS 评测。
-3. **直接把原方法改成 `async def`，名字不变**，不保留同步版本。脚本和服务统一用 `await` / `asyncio.run`。
+3. **直接把原方法改成 `async def`，名字不变**，不保留同步版本。脚本和外部调用方统一用 `await` / `asyncio.run`。
 4. **知识库可注入**：各组件的构造函数增加可选参数 `kb`，传了就复用，不传就自己创建（向后兼容），调用方可以全局只用一个实例。删掉 `DBFactory`。
 5. **会话状态放进 Redis**（使用 `deploy/` 下已有的 Redis）：多轮对话历史、摘要、token 统计、Agent 跨轮状态全部存到 Redis，组件本身变成无状态。同一会话用 Redis 分布式锁串行执行，不同会话完全并行，多个进程、多个 worker 之间也能共享会话。
 6. **检索参数请求级拷贝**，不再修改共享对象。
+7. **流式由包提供**：多轮 RAG 和 Agent 各提供一个 `stream` 异步生成器，内部完成加锁、读写会话、执行链 / 图，外部只负责把事件转换成自己的协议（SSE、WebSocket 等）。
 
 ---
 
-## 3. 改造后的对外 API
+## 3. 改造后的对外接口
 
 | 组件 | 改造前 | 改造后 |
 | --- | --- | --- |
@@ -60,9 +62,9 @@
 | `MedicalHybridKnowledgeBase` | `search(req)`、`add_documents(docs)`、`build_index()`、`_create_collection()` | 同名方法全部 `async`；新增 `async close()` |
 | `IngestionPipeline(config)` | `run(records) -> bool` | `IngestionPipeline(config, kb=None)`；`async run(records)` |
 | `SimpleRAG(config, search_config=None)` | `answer(query, return_document)` | 增加 `kb=None` 参数；`async answer(...)`；`batch_answer` 改为 `asyncio.gather` 并发 |
-| `MultiDialogueRag(config, search_config=None)` | `answer(query, return_document, session_id)` | 增加 `kb=None`、`store=None` 参数；`async answer(...)`，会话数据存 Redis |
+| `MultiDialogueRag(config, search_config=None)` | `answer(query, return_document, session_id)` | 增加 `kb=None`、`store=None` 参数；`async answer(...)`，会话数据存 Redis；新增 `stream(query, session_id)` |
 | `SearchGraph(config, power_model)` | `answer(query)`、`run(state)` | 增加 `kb=None` 参数；`async answer / run` |
-| `MedicalAgent(config, power_model)` | `answer(user_input)`，一个实例对应一个会话 | 增加 `kb=None`、`store=None` 参数；`async answer(user_input, session_id)`，**一个实例服务所有会话** |
+| `MedicalAgent(config, power_model)` | `answer(user_input)`，一个实例对应一个会话 | 增加 `kb=None`、`store=None` 参数；`async answer(user_input, session_id)`，**一个实例服务所有会话**；新增 `stream(user_input, session_id)` |
 | `RagasRagEvaluate` | `do_evaluate(...)` | `async do_evaluate(...)` |
 | `SimpleAnnotator` / `AnnotationPipeline` | `annotate_single`、`annotate_dataset`、`run` | 全部 `async`，按 `batch_size` 限制并发 |
 
@@ -193,21 +195,32 @@ def aclient(self) -> AsyncMilvusClient:
 | `self.avg_tokens_per_char`（实例级） | 每次按该会话的 token 统计现算，作为局部变量放进链的输入 |
 | 压缩时 `hist.messages = hist.messages[cutoff:]` | `await hist.atrim(cutoff)` |
 
-**对外流程**：把一轮对话拆成"准备 → 执行链 → 收尾"三步，`answer` 和上层的流式输出共用：
+**对外流程**：一轮对话固定是"加锁 → 准备输入 → 执行链 → 更新 token 统计"。准备和收尾写成两个私有方法，阻塞版和流式版共用：
 
 ```python
-async def prepare(self, query, session_id) -> dict:   # 压缩历史，读取摘要和 token 统计，拼好链的输入
-async def finish(self, result, session_id) -> None:   # 更新 token 统计
+async def _prepare(self, query, session_id) -> dict:  # 压缩历史，读取摘要和 token 统计，拼好链的输入
+async def _finish(self, result, session_id) -> None:  # 更新 token 统计
 
 async def answer(self, query, return_document=False, session_id="default"):
     async with self.store.lock(session_id):
-        inputs = await self.prepare(query, session_id)
-        result = await self.rag_chain.ainvoke(inputs, config={"configurable": {"session_id": session_id}})
-        await self.finish(result, session_id)
+        inputs = await self._prepare(query, session_id)
+        result = await self.rag_chain.ainvoke(inputs, config=...)
+        await self._finish(result, session_id)
     ...  # 组装返回值，结构不变
+
+async def stream(self, query, session_id="default") -> AsyncIterator[dict]:
+    async with self.store.lock(session_id):
+        inputs = await self._prepare(query, session_id)
+        result = None
+        async for event in self.rag_chain.astream_events(inputs, config=..., version="v2"):
+            if event["event"] == "on_chain_end" and event["name"] == "rag":
+                result = event["data"]["output"]
+            yield event
+        if result:
+            await self._finish(result, session_id)
 ```
 
-上层做流式输出（`rag_chain.astream_events`）时，也是 `async with store.lock(sid)` → `prepare` → `astream_events` → `finish`，不再直接访问 `_running_summaries` 这类私有字段。
+`stream` 原样透传 LangChain 的 `astream_events(v2)` 事件，不在包里定义新的事件格式。链中已有的 `run_name`（`rewritten_query` / `search_documents` / `generate` / `rag`）就是外部识别阶段的依据，写进 docstring。
 
 ### 4.11 `agent/SearchGraph.py`
 
@@ -249,20 +262,32 @@ async def answer(self, query, return_document=False, session_id="default"):
 - 对外方法：
 
   ```python
-  async def load_state(self, session_id) -> MedicalAgentState   # 读 Redis，没有就返回初始状态，并重置单轮字段
-  async def save_state(self, session_id, state) -> None         # 只写跨轮字段
+  async def _load_state(self, session_id) -> MedicalAgentState  # 读 Redis，没有就返回初始状态，并重置单轮字段
+  async def _save_state(self, session_id, state) -> None        # 只写跨轮字段
 
   async def answer(self, user_input, session_id="default"):
       async with self.store.lock(session_id):
-          state = await self.load_state(session_id)
+          state = await self._load_state(session_id)
           state["curr_input"] = user_input
           state = await self.app.ainvoke(state)
-          await self.save_state(session_id, state)
+          await self._save_state(session_id, state)
       return state
   ```
 
-  上层做流式输出（`app.astream`）时同样是"加锁 → `load_state` → `astream` → `save_state`"。
-- 删除 `self.state` 和 `_reset_state`（后者的内容挪到 `load_state` 的初始值里）。
+- 流式版本，原样透传 LangGraph `astream(stream_mode="updates")` 的 `{节点名: 更新}`，外部按节点名（`ask` / `extract_ask_and_reply` / `check_update_background` / `split_query` / `search_one` / `answer`）识别阶段：
+
+  ```python
+  async def stream(self, user_input, session_id="default") -> AsyncIterator[dict]:
+      async with self.store.lock(session_id):
+          state = await self._load_state(session_id)
+          state["curr_input"] = user_input
+          async for chunk in self.app.astream(state, stream_mode="updates"):
+              for updates in chunk.values():
+                  merge(state, updates)          # sub_query_results 按 add reducer 追加，其余直接覆盖
+              yield chunk
+          await self._save_state(session_id, state)
+  ```
+- 删除 `self.state` 和 `_reset_state`（后者的内容挪到 `load_state` 的初始值里）。`load_state` / `save_state` 改为私有方法 `_load_state` / `_save_state`，外部只需要用 `answer` 和 `stream`。
 
 ### 4.14 `rag/RagEvaluate.py`
 
@@ -305,13 +330,8 @@ async def answer(self, query, return_document=False, session_id="default"):
 3. **agent**：`AgentTools` + `SearchGraph` + `MedicalAgent`；用 `scripts/07`、`08` 验证。
 4. **data**：`annotation.py`。
 5. **scripts**：入口改为 `asyncio.run(main())`（随前面各步一起改）。
-6. **展示层（最后）**：只做调用点适配，服务自身的其他逻辑（鉴权、SQLite 持久化等）不在本次改造范围内。
-   - `MedicalRag/api/app.py`：
-     - 把 `await run_sync(x.answer, ...)` 改成 `await x.answer(...)`；
-     - 在 lifespan 里创建一个共享的 `kb` 和 `store`，注入各组件，退出时关闭；
-     - 删除 `agent_sessions` 字典和 `get_or_create_agent`，改为全局一个 `MedicalAgent`；
-     - 两个流式接口改用包提供的 `store.lock` / `prepare` / `finish`（`load_state` / `save_state`）。
-   - `software/run_api.py`：会话状态已经不在进程内存里，`workers=1` 的限制可以放开（是否调整由你决定）。
+
+`software/` 不在本方案范围内。包的接口变化（方法变为 `async`、`MedicalAgent` 改为无状态并新增 `session_id`、新增 `stream`）会导致 `software/backend` 需要跟着适配，这部分留给外部业务实现。
 
 ## 8. 验证方式
 
@@ -320,5 +340,6 @@ async def answer(self, query, return_document=False, session_id="default"):
   - 同一 `session_id` 用两个新建的 `MultiDialogueRag` / `MedicalAgent` 实例先后提问，第二个实例能接上第一个实例的历史；
   - 同一 `session_id` 同时发两个请求，历史中两轮问答完整且不交错；
   - 在 Redis 中能看到对应的 key 和 TTL。
-- **并发收益**：写一个小脚本，用 `asyncio.gather` 同时发起 N 个 `SimpleRAG.answer`，对比改造前（线程池）和改造后的总耗时；最后再用服务做一次压测作为展示。
-- **不阻塞事件循环**：开启 `loop.set_debug(True)` 并设置 `slow_callback_duration = 0.1`，压测期间日志中不应出现超过 100ms 的慢回调。
+- **流式接口**：`MultiDialogueRag.stream` / `MedicalAgent.stream` 能按顺序产出各阶段事件，结束后 Redis 中的历史和状态与 `answer` 的结果一致。
+- **并发收益**：写一个小脚本，用 `asyncio.gather` 同时发起 N 个 `SimpleRAG.answer`，对比改造前（在线程池里跑同步版）和改造后的总耗时。
+- **不阻塞事件循环**：开启 `loop.set_debug(True)` 并设置 `slow_callback_duration = 0.1`，并发测试期间日志中不应出现超过 100ms 的慢回调。
