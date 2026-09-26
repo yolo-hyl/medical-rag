@@ -8,9 +8,28 @@ import logging
 from .models import AppConfig
 from typing import Dict, List, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field
+import os
 import re
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# 仓库根目录：src/MedicalRag/config/loader.py -> 上溯三级
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def load_deploy_env() -> Optional[Path]:
+    """
+    加载 deploy/start.sh 生成的 .env（中间件密码等），已存在的环境变量优先。
+    可通过环境变量 MEDRAG_ENV_FILE 指定其他路径。
+    """
+    env_file = Path(os.environ.get("MEDRAG_ENV_FILE", REPO_ROOT / "deploy" / ".env"))
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
+        return env_file
+    logger.debug(f"未找到 {env_file}，跳过加载")
+    return None
+
 
 class ConfigLoader:
     """配置加载器"""
@@ -22,6 +41,7 @@ class ConfigLoader:
         Args:
             config_path: 配置文件路径（不是目录）。默认使用当前文件同目录下的 app_config.yaml
         """
+        load_deploy_env()
         if config_path is None:
             config_root = Path(__file__).parent
             self.config_path = config_root / "app_config.yaml"

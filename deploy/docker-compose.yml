@@ -1,0 +1,114 @@
+# 项目依赖的基础服务。请通过 ./start.sh 启动（会拉取镜像、启动容器并等待健康检查通过）。
+# 所有可调参数见 .env（模板：.env.example）。
+
+name: medical-rag
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Milvus standalone（内嵌 etcd + 本地存储，与原 standalone_embed.sh 的布局一致）
+  # ---------------------------------------------------------------------------
+  milvus:
+    <<: *common
+    image: ${REGISTRY:-docker.io}/milvusdb/milvus:${MILVUS_VERSION:-v2.6.0}
+    container_name: medrag-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - ${DATA_DIR:-./volumes}/milvus:/var/lib/milvus
+      - ./milvus/embedEtcd.yaml:/milvus/configs/embedEtcd.yaml:ro
+      - ./milvus/user.yaml:/milvus/configs/user.yaml:ro
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${MILVUS_PORT:-19530}:19530"
+      - "${BIND_ADDR:-127.0.0.1}:${MILVUS_HEALTH_PORT:-9091}:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL：用户、会话、任务元数据、LangGraph checkpointer
+  # ---------------------------------------------------------------------------
+  postgres:
+    <<: *common
+    image: ${REGISTRY:-docker.io}/library/postgres:${POSTGRES_VERSION:-16-alpine}
+    container_name: medrag-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-medrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请先执行 ./start.sh 生成 .env}
+      POSTGRES_DB: ${POSTGRES_DB:-medrag}
+    volumes:
+      - ${DATA_DIR:-./volumes}/postgres:/var/lib/postgresql/data
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis：任务队列、进度事件、会话缓存（开启 AOF 持久化）
+  # ---------------------------------------------------------------------------
+  redis:
+    <<: *common
+    image: ${REGISTRY:-docker.io}/library/redis:${REDIS_VERSION:-7.4-alpine}
+    container_name: medrag-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?请先执行 ./start.sh 生成 .env}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - ${DATA_DIR:-./volumes}/redis:/data
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Neo4j Community：知识图谱存储
+  # 注意：neo4j 会把 NEO4J_ 前缀的环境变量当作配置项解析，不要额外添加同前缀变量
+  # ---------------------------------------------------------------------------
+  neo4j:
+    <<: *common
+    image: ${REGISTRY:-docker.io}/library/neo4j:${NEO4J_VERSION:-5.26-community}
+    container_name: medrag-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?请先执行 ./start.sh 生成 .env}
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_SIZE:-1G}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_SIZE:-1G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE_SIZE:-512m}
+    volumes:
+      - ${DATA_DIR:-./volumes}/neo4j/data:/data
+      - ${DATA_DIR:-./volumes}/neo4j/logs:/logs
+      - ${DATA_DIR:-./volumes}/neo4j/import:/import
+      - ${DATA_DIR:-./volumes}/neo4j/plugins:/plugins
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${BIND_ADDR:-127.0.0.1}:${NEO4J_BOLT_PORT:-7687}:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s

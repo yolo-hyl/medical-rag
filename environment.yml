@@ -96,6 +96,7 @@ dependencies:
       - multiprocess==0.70.16
       - mypy==1.17.1
       - mypy-extensions==1.1.0
+      - neo4j==5.28.2
       - nest-asyncio==1.6.0
       - networkx==3.4.2
       - nh3==0.3.0
@@ -117,6 +118,8 @@ dependencies:
       - pluggy==1.6.0
       - propcache==0.3.2
       - protobuf==6.31.1
+      - psycopg==3.2.10
+      - psycopg-binary==3.2.10
       - pyarrow==21.0.0
       - pycparser==2.22
       - pydantic==2.11.7
@@ -134,6 +137,7 @@ dependencies:
       - pyyaml==6.0.2
       - ragas==0.3.2
       - readme-renderer==44.0
+      - redis==5.2.1
       - referencing==0.36.2
       - regex==2025.7.34
       - requests==2.32.4

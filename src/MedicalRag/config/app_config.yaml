@@ -5,6 +5,25 @@ milvus:
   drop_old: true
   auto_id: false
 
+# 以下中间件由 deploy/start.sh 启动；密码从环境变量读取（默认自动加载 deploy/.env）
+postgres:
+  host: 127.0.0.1
+  port: 5432
+  user: medrag
+  database: medrag
+  password_env: POSTGRES_PASSWORD
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  password_env: REDIS_PASSWORD
+
+neo4j:
+  uri: bolt://127.0.0.1:7687
+  user: neo4j
+  password_env: NEO4J_PASSWORD
+
 embedding:
   summary_dense:
     provider: openai

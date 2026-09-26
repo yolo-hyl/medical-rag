@@ -52,7 +52,13 @@ medical-rag/
 │   │   ├── MedicalAgent.py  # 多轮问讯智能体
 │   └── └── SearchGraph.py   # 单轮对话智能体
 ├── scripts/                 # 使用脚本
-├── Milvus/                  # Milvus客户端启动相关
+├── tests/                   # 测试
+├── deploy/                  # 基础服务部署：Milvus / PostgreSQL / Redis / Neo4j
+│   ├── docker-compose.yml   # 服务定义
+│   ├── .env.example         # 端口、镜像仓库、密码等配置模板
+│   ├── start.sh / stop.sh   # 启动（拉取镜像+健康检查）/ 停止
+│   ├── milvus/              # Milvus 配置文件
+│   └── volumes/             # 各服务的数据目录（自动创建，不入库）
 └── .vscode/                 # vscode快捷运行配置
 ```
 
@@ -83,15 +89,34 @@ pip install -e .
 
 #### 启动基础服务
 
-**启动 Milvus 向量数据库**
+**启动 Milvus / PostgreSQL / Redis / Neo4j**
 
-由于本项目默认可以采用稀疏向量管理，所以需要使用客户端Milvus。
+所有基础服务都通过 `deploy/` 下的 docker compose 管理，**运行项目代码之前先执行 `start.sh`**。
+脚本会拉取镜像、启动容器，并等待全部健康检查通过；以 0 退出即表示服务可用。
 
 ```bash
-# 使用项目提供的脚本
-cd Milvus
-bash standalone_embed.sh start
+bash deploy/start.sh                  # 拉取镜像、启动全部服务并等待就绪
+bash deploy/start.sh --no-pull        # 镜像已存在时跳过拉取
+python scripts/00_check_services.py   # 从 Python 侧确认各服务可读写（可选）
+pytest tests -v                       # 同上，以测试形式运行
+
+bash deploy/stop.sh                   # 停止（保留数据）
+bash deploy/stop.sh --down            # 删除容器（保留数据）
+bash deploy/stop.sh --purge           # 删除容器和全部数据（需确认）
 ```
+
+| 服务 | 用途 | 默认地址 |
+|------|------|----------|
+| Milvus 2.6 | 向量库 | `http://127.0.0.1:19530` |
+| PostgreSQL 16 | 用户、会话、任务元数据 | `127.0.0.1:5432` |
+| Redis 7.4 | 任务队列、进度事件、缓存 | `127.0.0.1:6379` |
+| Neo4j 5.26 Community | 知识图谱 | `bolt://127.0.0.1:7687`，浏览器 `http://127.0.0.1:7474` |
+
+- 首次运行会由 `deploy/.env.example` 生成 `deploy/.env`，并为各服务生成随机密码；Python 侧的 `ConfigLoader` 会自动读取该文件，无需手动导出密码。
+- 所有数据落在 `deploy/volumes/` 下。PostgreSQL / Neo4j 的密码只在首次初始化数据目录时生效，删除 `.env` 前请先 `stop.sh --purge`，或手动把旧密码写回 `.env`。
+- 端口默认只绑定 `127.0.0.1`，需要远程访问时在 `.env` 中设置 `BIND_ADDR=0.0.0.0`。
+- Docker Hub 拉取受限（429）或网络不通时，在 `.env` 中设置 `REGISTRY=mirror.gcr.io`（或 `docker.m.daocloud.io`）后重试。
+- 从旧版 `Milvus/standalone_embed.sh` 迁移：先 `docker stop milvus-standalone`，再执行 `mkdir -p deploy/volumes && mv Milvus/volumes/milvus deploy/volumes/milvus` 沿用原有数据。
 
 **启动 Ollama（如果使用本地模型）**
 ```bash

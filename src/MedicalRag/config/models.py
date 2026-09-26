@@ -1,6 +1,16 @@
+import os
 from typing import Dict, List, Optional, Literal, Any, Union
+from urllib.parse import quote
 from pydantic import BaseModel, Field
 from pydantic import BaseModel, Field, field_validator
+
+
+def read_secret(env_name: str) -> str:
+    """从环境变量读取密码；deploy/.env 会在 ConfigLoader 初始化时自动加载"""
+    value = os.environ.get(env_name)
+    if not value:
+        raise RuntimeError(f"未找到环境变量 {env_name}，请先执行 deploy/start.sh（会生成 deploy/.env）")
+    return value
 
 # =============================================================================
 # Milvus 配置
@@ -12,6 +22,41 @@ class MilvusConfig(BaseModel):
     collection_name: str = "medical_knowledge"
     drop_old: bool = False
     auto_id: bool = True
+
+# =============================================================================
+# 中间件配置（由 deploy/start.sh 启动，密码统一从环境变量读取）
+# =============================================================================
+class PostgresConfig(BaseModel):
+    """PostgreSQL配置"""
+    host: str = "127.0.0.1"
+    port: int = 5432
+    user: str = "medrag"
+    database: str = "medrag"
+    password_env: str = "POSTGRES_PASSWORD"
+
+    def dsn(self) -> str:
+        password = quote(read_secret(self.password_env), safe="")
+        return f"postgresql://{self.user}:{password}@{self.host}:{self.port}/{self.database}"
+
+class RedisConfig(BaseModel):
+    """Redis配置"""
+    host: str = "127.0.0.1"
+    port: int = 6379
+    db: int = 0
+    password_env: str = "REDIS_PASSWORD"
+
+    def url(self) -> str:
+        password = quote(read_secret(self.password_env), safe="")
+        return f"redis://:{password}@{self.host}:{self.port}/{self.db}"
+
+class Neo4jConfig(BaseModel):
+    """Neo4j配置"""
+    uri: str = "bolt://127.0.0.1:7687"
+    user: str = "neo4j"
+    password_env: str = "NEO4J_PASSWORD"
+
+    def password(self) -> str:
+        return read_secret(self.password_env)
 
 # =============================================================================
 # 嵌入配置
@@ -107,6 +152,9 @@ class AgentConfig(BaseModel):
 class AppConfig(BaseModel):
     """应用主配置 - 更新版"""
     milvus: MilvusConfig
+    postgres: PostgresConfig = Field(default_factory=PostgresConfig)
+    redis: RedisConfig = Field(default_factory=RedisConfig)
+    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     embedding: EmbeddingConfig  # 包含multi_vector配置
     llm: LLMConfig
     data: DataConfig
