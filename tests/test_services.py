@@ -6,7 +6,6 @@ import pytest
 
 from MedicalRag.config.loader import ConfigLoader
 from MedicalRag.config.models import PostgresConfig, RedisConfig, read_secret
-from MedicalRag.core.services import CHECKS, check_services
 
 
 @pytest.fixture(scope="module")
@@ -18,12 +17,6 @@ def test_deploy_env_loaded(config):
     # ConfigLoader 应自动加载 deploy/.env 中的密码
     for env_name in (config.postgres.password_env, config.redis.password_env, config.neo4j.password_env):
         assert read_secret(env_name)
-
-
-@pytest.mark.parametrize("name", list(CHECKS))
-def test_service_available(config, name):
-    (status,) = check_services(config, [name])
-    assert status.ok, f"{name} 不可用: {status.detail}"
 
 
 def test_milvus_roundtrip(config):

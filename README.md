@@ -97,8 +97,7 @@ pip install -e .
 ```bash
 bash deploy/start.sh                  # 拉取镜像、启动全部服务并等待就绪
 bash deploy/start.sh --no-pull        # 镜像已存在时跳过拉取
-python scripts/00_check_services.py   # 从 Python 侧确认各服务可读写（可选）
-pytest tests -v                       # 同上，以测试形式运行
+pytest tests -v                       # 从 Python 侧确认各服务可读写（可选）
 
 bash deploy/stop.sh                   # 停止（保留数据）
 bash deploy/stop.sh --down            # 删除容器（保留数据）
