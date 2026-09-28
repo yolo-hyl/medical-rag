@@ -2,23 +2,10 @@ import time
 from typing import Any, Dict, Tuple
 from uuid import UUID
 
-import tiktoken
 from langchain_core.callbacks import AsyncCallbackHandler
 
-ESTIMATE_FUNCTION_REGISTRY = {}
-
-def register_estimate_function(name):
-    """装饰器：注册函数到字典"""
-    def decorator(func):
-        ESTIMATE_FUNCTION_REGISTRY[name] = func
-        return func
-    return decorator
-
-@register_estimate_function("tiktoken")
-def estimate_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    tokens = len(encoding.encode(text))
-    return tokens
+# token 估算函数注册表已移到 core/memory.py，这里保留导出以兼容旧的导入路径
+from ..core.memory import ESTIMATE_FUNCTION_REGISTRY, estimate_tokens, register_estimate_function  # noqa: F401
 
 
 class StageTimer(AsyncCallbackHandler):

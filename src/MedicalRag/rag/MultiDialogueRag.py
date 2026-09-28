@@ -15,15 +15,13 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from ..config.models import LLMConfig, MultiDialogueRagConfig, SearchRequest
 from ..core.HybridRetriever import MedicalHybridRetriever
 from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
+from ..core.memory import INIT_TOKENS_PER_CHAR, BaseMemory, SummaryBufferMemory, TokenBudget, TokenStats
 from ..core.session_store import RedisChatHistory, RedisSessionStore
 from ..prompts.templates import get_prompt_template
 from .RagBase import BasicRAG
-from .utils import ESTIMATE_FUNCTION_REGISTRY, StageTimer
+from .utils import StageTimer
 
 logger = logging.getLogger(__name__)
-
-# 没有历史统计时的初始值：给一个很小的值，避免第一轮就误判为超长
-INIT_TOKENS_PER_CHAR = 1e-5
 
 # 链中两次 LLM 调用的 run_name，同时作为 StageTimer 的计时键
 REWRITE_LLM = "rewrite_llm"
@@ -35,6 +33,7 @@ class MultiDialogueRag(BasicRAG):
 
     本身无状态：对话历史、running summary、token 统计都存在 Redis 里，
     同一会话由 store 的分布式锁串行执行，一个实例可以服务所有会话。
+    记忆策略（何时、如何收缩历史）可通过 memory 参数替换，默认超预算时压成摘要。
     """
 
     def __init__(
@@ -43,11 +42,14 @@ class MultiDialogueRag(BasicRAG):
         dialogue: MultiDialogueRagConfig,
         kb: MedicalHybridKnowledgeBase,
         store: RedisSessionStore,
-        search_config: SearchRequest = None
+        search_config: SearchRequest = None,
+        memory: BaseMemory | None = None,
     ):
         super().__init__(llm, kb, search_config)
         self.dialogue_config = dialogue
         self.store = store
+        self.budget = TokenBudget(dialogue)
+        self.memory = memory or SummaryBufferMemory(dialogue, self.llm)
 
         if dialogue.smith_debug:
             os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -90,87 +92,21 @@ class MultiDialogueRag(BasicRAG):
             ]
         )
 
-    # ---------- token 估算 ----------
-    @staticmethod
-    def _avg_tokens_per_char(token_meta: dict | None) -> float:
-        """按本会话的历史统计现算：平均一个字符消耗多少 token"""
-        if not token_meta or not sum(token_meta["msg_len"]):
-            return INIT_TOKENS_PER_CHAR
-        return sum(token_meta["msg_token_len"]) / sum(token_meta["msg_len"])
-
-    def _estimate_tokens(self, text: str) -> int:
-        """按配置的估计函数计算文本的 token 数；配置为 avg 时由调用方另行处理"""
-        return ESTIMATE_FUNCTION_REGISTRY[self.dialogue_config.estimate_token_fun](text)
-
-    def _avg_over_max_token(self, token_meta: dict | None, history_text: str) -> bool:
-        """用平均 token 占比预测本轮总量是否会超出模型上限"""
-        if not token_meta:
-            return False
-        avg = self._avg_tokens_per_char(token_meta)
-        msg_len = token_meta["msg_len"]
-        # 用历史消息的平均长度，预测这次回答可能会生成多少 token
-        predict_token = avg * sum(msg_len) / max(1, len(msg_len))
-        curr_all_token = predict_token + len(history_text) * avg
-        cfg = self.dialogue_config
-        return curr_all_token > cfg.llm_max_token * cfg.max_token_threshold
-
-    def _need_compress(self, token_meta: dict | None, history_text: str) -> bool:
-        cfg = self.dialogue_config
-        if cfg.estimate_token_fun != "avg":
-            try:
-                return self._estimate_tokens(history_text) >= cfg.llm_max_token * cfg.max_token_threshold
-            except Exception:
-                logger.exception("注册的估计函数错误，回退到默认avg实现...")
-        return self._avg_over_max_token(token_meta, history_text)
-
-    # ---------- 上下文压缩（旧消息→摘要） ----------
-    async def _maybe_compress_history(self, session_id: str, token_meta: dict | None) -> None:
-        """当历史过长时，把旧轮次归纳进 running_summary，并裁剪历史。"""
+    # ---------- 上下文压缩（由记忆策略决定） ----------
+    async def _maybe_compress_history(self, session_id: str, token_stats: TokenStats) -> None:
+        """按记忆策略收缩历史：新摘要追加进 running_summary，丢弃的旧消息从历史中裁掉"""
         hist = self._get_history(session_id)
-        messages = await hist.aget_messages()
-        if not messages:
+        result = await self.memory.compress(await hist.aget_messages(), token_stats)
+        if result is None:
             return
 
-        history_text = "\n".join(m.content for m in messages if hasattr(m, "content"))
-        if not self._need_compress(token_meta, history_text):
-            return
+        if result.summary:
+            # 如果有摘要，那就回车换行继续加
+            prev = await self.store.get_json(self._summary_key(session_id), "")
+            merged = (prev + "\n" + result.summary).strip() if prev else result.summary
+            await self.store.set_json(self._summary_key(session_id), merged)
 
-        # 把旧消息（配置50%）压缩
-        await self._get_summary(session_id, hist, messages)
-
-    async def _get_summary(
-        self,
-        session_id: str,
-        hist: RedisChatHistory,
-        messages: List[BaseMessage]
-    ) -> None:
-        """ 生成摘要 """
-        if self.dialogue_config.console_debug:
-            logger.warning(f"[{session_id}] 对话过长，需要生成摘要...")
-
-        cutoff = max(2, len(messages) // self.dialogue_config.cut_dialogue_scale)
-        old_msgs = messages[:cutoff]
-        # 生成摘要
-        summarize_prompt = ChatPromptTemplate.from_messages([
-            ("system", get_prompt_template("summary")["system"]),
-            MessagesPlaceholder("history"),
-            ("human", get_prompt_template("summary")["user"])
-        ])
-        summary_result: AIMessage = await (summarize_prompt | self.llm).ainvoke({"history": old_msgs})
-        summary = re.sub(r"<think>.*?</think>\s*", "", summary_result.content, flags=re.DOTALL).strip()
-
-        if self.dialogue_config.console_debug:
-            dur = summary_result.response_metadata.get("total_duration", 0) / 1e9
-            tokens = summary_result.usage_metadata["total_tokens"]
-            logger.warning(f"[{session_id}] 摘要生成完毕，耗时：{dur} s，使用tokens：{tokens}\n摘要文本：\n{summary}")
-
-        # 如果有摘要，那就回车换行继续加
-        prev = await self.store.get_json(self._summary_key(session_id), "")
-        merged = (prev + "\n" + summary).strip() if prev else summary
-        await self.store.set_json(self._summary_key(session_id), merged)
-
-        # 丢弃已压缩的旧消息，保留后半段
-        await hist.atrim(cutoff)
+        await hist.atrim(result.drop)
 
     @staticmethod
     def _strip_think_get_tokens(msg: AIMessage):
@@ -196,54 +132,19 @@ class MultiDialogueRag(BasicRAG):
         history_msgs: List[BaseMessage]
     ) -> str:
         """按剩余 token 预算，尽可能多地把检索文档拼进上下文（纯计算，不涉及 IO）"""
-        cfg = self.dialogue_config
-        remain_token = cfg.llm_max_token
         his_text = "\n".join(
             getattr(m, "content", "") for m in history_msgs if hasattr(m, "content")
         )
-
         user_text = get_prompt_template("dialogue_rag")["user"].format(
             llm_rewritten_content=rewritten_query,
             all_document_str=""  # 先占位，后面再计算文档长度
         )
         system_text = get_prompt_template("dialogue_rag")["system"].format(running_summary=running_summary)
-        all_chars = his_text + system_text + user_text
-
-        use_estimate_fun = cfg.estimate_token_fun != "avg"
-        if use_estimate_fun:
-            all_token = self._estimate_tokens(all_chars)
-        else:
-            all_token = len(all_chars)
-        remain_token -= all_token - cfg.llm_max_token * 0.01
-
-        parts = []
-        used = 0
-        for idx, d in enumerate(documents):
-            header = f"## 文档{idx+1}：\n"
-            body = d.page_content or ""
-            if use_estimate_fun:
-                header_tokens = self._estimate_tokens(header)
-                body_tokens = self._estimate_tokens(body)
-            else:
-                header_tokens = avg_tokens_per_char * len(header)
-                body_tokens = avg_tokens_per_char * len(body)
-
-            if used + header_tokens + body_tokens <= remain_token:
-                parts.append(header + body + "\n")
-                used += header_tokens + body_tokens
-            else:
-                # 放不下整篇
-                if cfg.console_debug:
-                    logger.warning(f"根据给定的token估计方法，预估无法完成全部文档编码，文档{idx+1}被截断，后续文档将无法被放入上下文...")
-                remain = remain_token - used - header_tokens
-                if remain > 0:
-                    # 依据平均token估算可保留字符数
-                    keep_chars = max(0, int(remain / max(0.1, avg_tokens_per_char)))
-                    if keep_chars > 0:
-                        parts.append(header + body[:keep_chars] + "\n...[内容已截断]\n")
-                break  # 无论是否部分放入，预算已到
-
-        return "".join(parts)
+        return self.budget.fit_documents(
+            [d.page_content for d in documents],
+            fixed_text=his_text + system_text + user_text,
+            avg_tokens_per_char=avg_tokens_per_char,
+        )
 
 
     # ---------- 构建多轮 RAG 链 ----------
@@ -300,24 +201,24 @@ class MultiDialogueRag(BasicRAG):
     # ---------- 一轮对话的准备与收尾（阻塞版与流式版共用） ----------
     async def _prepare(self, query: str, session_id: str) -> dict:
         """压缩历史，读取摘要和 token 统计，拼好链的输入"""
-        token_meta = await self.store.get_json(self._tokens_key(session_id))
-        await self._maybe_compress_history(session_id, token_meta)
+        token_stats = await self._load_token_stats(session_id)
+        await self._maybe_compress_history(session_id, token_stats)
         return {
             "original_input": query,
             "running_summary": await self.store.get_json(self._summary_key(session_id), ""),
-            "avg_tokens_per_char": self._avg_tokens_per_char(token_meta),
+            "avg_tokens_per_char": token_stats.avg_tokens_per_char(),
             "session_id": session_id,
         }
 
+    async def _load_token_stats(self, session_id: str) -> TokenStats:
+        return TokenStats.model_validate(await self.store.get_json(self._tokens_key(session_id), {}))
+
     async def _finish(self, result: dict, session_id: str) -> None:
         """ 更新token统计，以便估算下一次对话是否需要摘要 """
-        token_meta = await self.store.get_json(
-            self._tokens_key(session_id), {"msg_len": [], "msg_token_len": []}
-        )
+        token_stats = await self._load_token_stats(session_id)
         for key in ("llm_rewritten_query", "llm_out_result"):
-            token_meta["msg_len"].append(result[key]["msg_len"])
-            token_meta["msg_token_len"].append(result[key]["msg_token_len"])
-        await self.store.set_json(self._tokens_key(session_id), token_meta)
+            token_stats.add(result[key]["msg_len"], result[key]["msg_token_len"])
+        await self.store.set_json(self._tokens_key(session_id), token_stats.model_dump())
 
     # ---------- 对外 API：增加 session_id & 多轮 ----------
     async def answer(

@@ -6,3 +6,6 @@ data:
   default_source_name: huatuo_qa
   default_lt_doc_id: ''
   default_chunk_id: -1
+  # 入库批量：默认适配 DashScope（单次请求最多 10 条、有限流），本地 embedding 服务可以调大
+  batch_size: 10    # 每批入库的文档数
+  concurrency: 1    # 同时进行的批次数

@@ -120,18 +120,26 @@ class DataConfig(BaseModel):
     default_source_name: Optional[str] = "huatuo"  # QA数据源名称
     default_lt_doc_id: Optional[str] = ""
     default_chunk_id: Optional[int] = -1
+    # 入库批量：每批的文档一起做 embedding、一次写入 Milvus；concurrency 为同时进行的批次数
+    # 默认值适配 DashScope（单次请求最多 10 条且有限流），本地 embedding 服务可以调大
+    batch_size: int = Field(default=10, ge=1, description="每批入库的文档数")
+    concurrency: int = Field(default=1, ge=1, description="同时进行的批次数")
 
 # =============================================================================
 # 多轮RAG对话配置
 # =============================================================================
-class MultiDialogueRagConfig(BaseModel):
-    """ 多轮对话关键配置 """
-    estimate_token_fun: str = "avg"
+class MemoryConfig(BaseModel):
+    """ 多轮记忆管理配置（MultiDialogueRag 与 Agent 共用，见 core/memory.py） """
+    estimate_token_fun: str = "avg"  # avg 表示按会话统计的平均值估算，其余为注册的估算函数名
     llm_max_token: int = 1024
     max_token_threshold: float = 1.1   # 宽松阈值
     cut_dialogue_scale: int = Field(default=2, ge=2, description="裁切一次砍一半，必须>=2")
-    smith_debug: bool = False
     console_debug: bool = False
+
+
+class MultiDialogueRagConfig(MemoryConfig):
+    """ 多轮对话关键配置 """
+    smith_debug: bool = False
     thinking_in_context: bool = False
 
 # =============================================================================
@@ -149,6 +157,7 @@ class AgentConfig(BaseModel):
     auto_search_param: bool = True  # 是否开启确定搜索参数
     console_debug: bool = False  # 是否打印图执行过程
     max_ask_num: int = 3  # 一个问题最多主动追问的次数
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)  # 多轮记忆：短期对话窗口 + 长期摘要
 
 # =============================================================================
 # 更新主配置类

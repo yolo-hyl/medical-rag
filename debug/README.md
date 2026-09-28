@@ -38,6 +38,7 @@ python debug/01_config.py
 | `04_agent.py` | 全部 | ~5min | 真模型：`SearchGraph` 真工具调用、`MedicalAgent` 追问循环、跨轮状态进 Redis、中途换实例续接、会话隔离、流式节点 |
 | `05_eval.py` | Milvus + 全部模型 | ~5min | 统一评测流程：固定 seed 采样可复现、JSONL 往返、ragas 打分、重复打分 |
 | `07_web.py` | 全部 | 常驻 | Agent 轨迹查看页，见下节 |
+| `08_ingest_qa.py` | Milvus + Embedding | 全量 ~40min | 把 `data/qa_50000.jsonl` 入库到独立集合 `medrag_qa50k`（`--limit N` 只入前 N 条），给轨迹页用真实数据 |
 
 `04_agent.py` 想快一点可以 `MEDRAG_AGENT_FAST=1 python debug/04_agent.py`，
 把 Agent 的 `mode` 降成 `fast`，跳过事实校验回路。
@@ -49,6 +50,16 @@ python debug/07_web.py
 ```
 
 启动后打开 <http://127.0.0.1:8100>。启动日志会打印用的哪个模型、哪个集合、联网检索开没开。
+
+默认用内置 8 条样例（启动时入库、退出时删集合）。想用真实数据：
+
+```bash
+git lfs pull --include data/qa_50000.jsonl
+python debug/08_ingest_qa.py                               # 入库到 medrag_qa50k
+MEDRAG_WEB_COLLECTION=medrag_qa50k python debug/07_web.py  # 直接用已有集合，不写样例、退出不删
+```
+
+`medrag_qa50k` 不会被其他脚本删掉（它们只删 `medrag_debug`）；重跑 `08_ingest_qa.py` 会重建它。
 
 页面就是一个输入框加一条时间线：把 `MedicalAgent.stream()` 产出的
 `{节点名: 更新}` 按顺序显示出来，每一步标出节点名和累计耗时。

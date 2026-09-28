@@ -15,6 +15,7 @@ from common import (
 
 from MedicalRag.agent.MedicalAgent import MedicalAgent
 from MedicalRag.core.IngestionPipeline import IngestionPipeline
+from MedicalRag.core.memory import SummaryBufferMemory
 from MedicalRag.core.session_store import RedisSessionStore
 from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
 from MedicalRag.rag.SimpleRag import SimpleRAG
@@ -57,7 +58,8 @@ async def main():
             dialogue = cfg.multi_dialogue_rag
             if llm_max_token:
                 dialogue = dialogue.model_copy(update={"llm_max_token": llm_max_token})
-            m = MultiDialogueRag(cfg.llm, dialogue, kb, store, search)
+            m = MultiDialogueRag(cfg.llm, dialogue, kb, store, search,
+                                 memory=SummaryBufferMemory(dialogue, plain_llm))
             m.llm = plain_llm
             m._setup_chain()
             return m
@@ -97,7 +99,8 @@ async def main():
 
         # ---- 9~10) Agent 跨轮状态 ----
         def make_agent():
-            a = MedicalAgent(cfg.llm, cfg.agent, kb, store, power_model=json_llm)
+            a = MedicalAgent(cfg.llm, cfg.agent, kb, store, power_model=json_llm,
+                             memory=SummaryBufferMemory(cfg.agent.memory, plain_llm))
             a.normal_llm = json_llm
             a.search_graph.llm = plain_llm   # 检索图里生成的是自然语言回答
             a.search_graph.agent_tools.register_websearch(fake_websearch)

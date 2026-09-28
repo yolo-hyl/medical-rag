@@ -6,3 +6,7 @@ data:
   default_source_name: huatuo_qa
   default_lt_doc_id: ''
   default_chunk_id: -1
+  # 入库批量：本地 vLLM 没有 DashScope 那样的单次 10 条限制
+  # 实测（Octen-Embedding-8B，2000 条）：10/1 约 25 条/s，64/4 约 30 条/s，再调大不再提升——瓶颈在 embedding 服务的算力
+  batch_size: 64    # 每批入库的文档数
+  concurrency: 4    # 同时进行的批次数

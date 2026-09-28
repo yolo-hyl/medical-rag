@@ -8,6 +8,7 @@
 用的是 debug/conf 里配的本地 vLLM 与 medrag_debug 集合。
 """
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,20 +38,33 @@ class Ask(BaseModel):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     cfg = load_config()
+    # 设了 MEDRAG_WEB_COLLECTION 就直接用这个已入库的集合（如 08_ingest_qa.py 建的 medrag_qa50k），
+    # 不写内置样例、退出时也不删；没设则照旧：启动时写入内置 8 条，退出时删掉
+    existing = os.environ.get("MEDRAG_WEB_COLLECTION")
+    if existing:
+        cfg = cfg.model_copy(update={"milvus": cfg.milvus.model_copy(update={"collection_name": existing})})
     # 没有腾讯云凭据就关掉联网检索，只用本地知识库；不拿假数据顶
     agent_cfg, note = apply_websearch_policy(cfg.agent)
     kb = build_kb(cfg)
-    if not await IngestionPipeline(cfg.data, kb).run(RAW_RECORDS):
-        raise RuntimeError("入库失败，看上面的日志")
+    if existing:
+        if not kb.client.has_collection(existing):
+            raise RuntimeError(f"集合 {existing} 不存在，先运行 debug/08_ingest_qa.py")
+        kb.client.load_collection(existing)
+        rows = kb.client.query(existing, output_fields=["count(*)"])[0]["count(*)"]
+    else:
+        if not await IngestionPipeline(cfg.data, kb).run(RAW_RECORDS):
+            raise RuntimeError("入库失败，看上面的日志")
+        rows = len(RAW_RECORDS)
     store = RedisSessionStore(cfg.redis)
     agent = MedicalAgent(cfg.llm, agent_cfg, kb, store, power_model=create_llm_client(cfg.llm))
     ctx.update(cfg=cfg, kb=kb, store=store, agent=agent)
     print(f"\n就绪：http://127.0.0.1:8100"
-          f"\n  模型 {cfg.llm.model} / 模式 {agent_cfg.mode} / 知识库 {cfg.milvus.collection_name}（{len(RAW_RECORDS)} 条）"
+          f"\n  模型 {cfg.llm.model} / 模式 {agent_cfg.mode} / 知识库 {cfg.milvus.collection_name}（{rows} 条）"
           f"\n  {note}\n")
     yield
     await store.close()
-    drop_collection(kb)
+    if not existing:
+        drop_collection(kb)
     await kb.close()
 
 
@@ -59,6 +73,10 @@ app = FastAPI(title="Agent 轨迹", lifespan=lifespan)
 
 def describe(node: str, updates: dict) -> list[str]:
     """把一个节点的状态更新翻译成几行人话"""
+    if node == "compress_memory":
+        return [f"短期记忆 {len(updates.get('dialogue_messages') or [])} 条消息，"
+                f"长期摘要 {len(updates.get('summary') or [])} 段"]
+
     if node == "ask":
         ask = updates.get("ask_messages")
         if ask is None:
@@ -96,10 +114,7 @@ def describe(node: str, updates: dict) -> list[str]:
         return lines or ["没有子查询结果"]
 
     if node == "answer":
-        lines = [updates.get("final_answer") or "(空)"]
-        if updates.get("summary"):
-            lines.append(f"（会话已累积 {len(updates['summary'])} 条摘要）")
-        return lines
+        return [updates.get("final_answer") or "(空)"]
 
     return [json.dumps(list(updates.keys()), ensure_ascii=False)]
 

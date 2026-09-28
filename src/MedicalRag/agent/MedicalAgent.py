@@ -23,6 +23,7 @@ from typing_extensions import TypedDict
 
 from ..config.models import AgentConfig, LLMConfig
 from ..core.KnowledgeBase import MedicalHybridKnowledgeBase
+from ..core.memory import BaseMemory, SummaryBufferMemory, TokenBudget, TokenStats, messages_text
 from ..core.session_store import RedisSessionStore
 from ..core.utils import create_llm_client
 from ..prompts.templates import get_prompt_template
@@ -64,9 +65,10 @@ class SearchTask(TypedDict):
 
 class MedicalAgentState(TypedDict, total=False):
     # 全局维护
-    dialogue_messages: List[BaseMessage]  # 多轮全局对话消息列表，system + 原始用户输入（最近一轮检索到的文档） + 原始模型回答（不包含追问内容、历史文档等，以防撑爆上下文）
+    dialogue_messages: List[BaseMessage]  # 短期记忆：每轮的本轮问题 + 最终回答（不含追问内容、文档），超出 token 预算时由记忆策略裁掉最旧的部分
     background_info: str  # 通过追问后获取的背景信息
-    summary: List[str]     # 跨轮摘要，压缩后的历史摘要（超过8条时触发压缩）
+    summary: List[str]     # 长期记忆：每次从 dialogue_messages 移出的旧消息压成的一段摘要
+    token_stats: TokenStats  # 会话内 LLM 输出的字符数 / token 数，用于估算 token 预算
     ask_messages: AskState  # 当前需要追问的内容，包含是否需要追问及问题列表
     curr_input: str  # 当前用户输入的内容
 
@@ -79,6 +81,16 @@ class MedicalAgentState(TypedDict, total=False):
 
 
 # ===================== 节点函数 =====================
+
+async def compress_memory(state: MedicalAgentState, memory: BaseMemory) -> MedicalAgentState:
+    """每轮开始时按记忆策略收缩短期记忆：丢弃最旧的消息，新摘要追加进长期记忆。"""
+    result = await memory.compress(state["dialogue_messages"], state["token_stats"])
+    if result is not None:
+        state["dialogue_messages"] = state["dialogue_messages"][result.drop:]
+        if result.summary:
+            state["summary"].append(result.summary)
+    return state
+
 
 async def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
     """判断是否需要向用户追问，并输出追问问题。"""
@@ -214,6 +226,7 @@ async def judge_split_query(state: MedicalAgentState, llm: BaseChatModel) -> Med
         original_input=question,
         rewritten_queries=patch,
     ))
+    state["token_stats"].add(ai["msg_len"], ai["msg_token_len"])
     state["performance"].append(("split_query", ai))
     return state
 
@@ -246,79 +259,48 @@ async def search_one(task: SearchTask, search_graph: SearchGraph) -> dict:
     return {"retrieval_outputs": [result]}
 
 
-async def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+async def gather_answer(state: MedicalAgentState, llm: BaseChatModel, budget: TokenBudget) -> MedicalAgentState:
     """
-    汇总各子查询答案：
-    - 单子查询：直接使用检索结果
-    - 多子查询：用 LLM 将多份子答案综合为统一的最终回复
-    更新 final_answer、dialogue_messages、summary，并结束本次追问。
+    结合多轮上下文生成本轮最终回答（不论几个子查询都统一生成一次）：
+    - system：长期记忆 summary + 用户背景
+    - history：短期记忆 dialogue_messages
+    - 参考资料：各子查询的检索分析，按扣除上述内容后的剩余 token 预算装入
+    更新 final_answer、dialogue_messages、token_stats，并结束本次追问。
     """
-    question = state["retrieval_states"][-1].original_input  # 本轮问题，见 resolve_round_question
-    sub_results: List[SearchMessagesState] = state["retrieval_states"][-1].retrieval_outputs
+    rs = state["retrieval_states"][-1]
+    question = rs.original_input  # 本轮问题，见 resolve_round_question
+    sub_answers = []
+    for res in rs.retrieval_outputs:
+        ans = (res.get("final") or res.get("summary") or "").strip()
+        if ans:
+            sub_answers.append(f"子查询：{res.get('query', '')}\n{ans}")
 
-    if not sub_results:
-        final_answer = "抱歉，检索未能获取到相关资料，请稍后再试。"
+    tmpl = get_prompt_template("agent_answer")
+    system_text = tmpl["system"].format(
+        summary="\n".join(state["summary"]) or "（无）",
+        background_info=state["background_info"] or "（无）",
+    )
+    history = state["dialogue_messages"]
+    all_document_str = budget.fit_documents(
+        sub_answers,
+        fixed_text=system_text + messages_text(history) + tmpl["user"].format(all_document_str="", question=question),
+        avg_tokens_per_char=state["token_stats"].avg_tokens_per_char(),
+        title="子问题",
+    )
 
-    elif len(sub_results) == 1:
-        final_answer = (
-            sub_results[0].get("final") or sub_results[0].get("summary") or ""
-        ).strip()
-        if not final_answer:
-            final_answer = "抱歉，根据提供的资料无法回答您的问题。"
-
-    else:
-        sub_answers = []
-        for i, res in enumerate(sub_results):
-            ans = (res.get("final") or res.get("summary") or "").strip()
-            if ans:
-                sub_answers.append(f"### 子问题 {i + 1} 分析：\n{ans}")
-
-        if not sub_answers:
-            final_answer = "抱歉，根据提供的资料无法回答您的问题。"
-        else:
-            background = state["background_info"]
-            history = "\n".join(state["summary"])
-            context_prefix = ""
-            if background:
-                context_prefix += f"用户背景：{background}\n"
-            if history:
-                context_prefix += f"历史摘要：{history}\n"
-
-            combined_context = "\n\n".join(sub_answers)
-            if context_prefix:
-                combined_context = context_prefix + "\n" + combined_context
-
-            sys_tmpl = get_prompt_template("basic_rag")["system"]
-            user_tmpl = get_prompt_template("basic_rag")["user"]
-            synthesis_ai = await llm.ainvoke([
-                SystemMessage(content=sys_tmpl),
-                HumanMessage(content=user_tmpl.format(
-                    all_document_str=combined_context,
-                    input=question,
-                )),
-            ])
-            final_answer = re.sub(
-                r"<think>.*?</think>\s*", "", synthesis_ai.content, flags=re.DOTALL
-            ).strip()
+    # 直接构造消息而非 ChatPromptTemplate：摘要、资料里可能含有大括号
+    ai = strip_think_get_tokens(await llm.ainvoke([
+        SystemMessage(content=system_text),
+        *history,
+        HumanMessage(content=tmpl["user"].format(all_document_str=all_document_str or "（无）", question=question)),
+    ]))
+    final_answer = ai["msg"] or "抱歉，根据提供的资料无法回答您的问题。"
 
     state["final_answer"] = final_answer
     state["dialogue_messages"].append(HumanMessage(content=question))
     state["dialogue_messages"].append(AIMessage(content=final_answer))
-
-    # 更新多轮摘要
-    state["summary"].append(f"问：{question}\n答：{final_answer[:300]}")
-
-    # 压缩：达到 8 条时把最旧的 4 条压成 1 条放回开头（开头那条可能是上次压缩的结果，会被一并滚动压缩）
-    if len(state["summary"]) >= 8:
-        old_entries = "\n".join(state["summary"][:4])
-        compressed = await llm.ainvoke([
-            SystemMessage(content=get_prompt_template("summary")["system"]),
-            HumanMessage(content=old_entries + "\n" + get_prompt_template("summary")["user"]),
-        ])
-        compressed_text = re.sub(
-            r"<think>.*?</think>\s*", "", compressed.content, flags=re.DOTALL
-        ).strip()
-        state["summary"] = [compressed_text] + state["summary"][4:]
+    state["token_stats"].add(ai["msg_len"], ai["msg_token_len"])
+    state["performance"].append(("answer", ai))
 
     # 本次追问结束；background_info 刻意保留，供下一轮 check_update_background 使用
     state["ask_messages"].curr_ask_num = 0
@@ -392,6 +374,8 @@ class MedicalAgent:
 
     本身无状态：跨轮状态（含每轮的检索全文）存在 Redis 里，一个实例服务所有会话。
     curr_input / final_answer / performance 每次执行重新开始，不持久化。
+    多轮记忆与 MultiDialogueRag 共用 core/memory.py：记忆策略可通过 memory 参数替换，
+    默认超出 agent.memory 的 token 预算时，把最旧的对话压成摘要。
     """
 
     def __init__(
@@ -401,12 +385,15 @@ class MedicalAgent:
         kb: MedicalHybridKnowledgeBase,
         store: RedisSessionStore,
         power_model: BaseChatModel,
+        memory: BaseMemory | None = None,
     ) -> None:
         self.agent_config = agent
         self.store = store
         self.power_model = power_model
         self.normal_llm = create_llm_client(llm)
         self.search_graph = SearchGraph(llm, agent, kb, power_model)
+        self.budget = TokenBudget(agent.memory)
+        self.memory = memory or SummaryBufferMemory(agent.memory, self.normal_llm)
         self.build_graph()
 
     def build_retrieval_graph(self) -> CompiledStateGraph:
@@ -420,15 +407,17 @@ class MedicalAgent:
     def build_graph(self):
         g = StateGraph(MedicalAgentState)
 
+        g.add_node("compress_memory",        partial(compress_memory,         memory=self.memory))
         g.add_node("ask",                    partial(ask_judge,               llm=self.normal_llm))
         g.add_node("extract_ask_and_reply",  partial(extract_background_info, llm=self.normal_llm))
         g.add_node("check_update_background", partial(check_update_background, llm=self.normal_llm))
         g.add_node("split_query",            partial(judge_split_query,       llm=self.power_model))
         g.add_node("retrieve",               partial(retrieve,                retrieval_app=self.build_retrieval_graph()))
-        g.add_node("answer",                 partial(gather_answer,           llm=self.normal_llm))
+        g.add_node("answer",                 partial(gather_answer,           llm=self.normal_llm, budget=self.budget))
 
-        # START → 条件路由：有背景则跳过追问
-        g.add_conditional_edges(START, route_entry, {
+        # START → 每轮先收缩短期记忆 → 条件路由：有背景则跳过追问
+        g.add_edge(START, "compress_memory")
+        g.add_conditional_edges("compress_memory", route_entry, {
             "ask": "ask",
             "check_update_background": "check_update_background",
         })
@@ -463,6 +452,7 @@ class MedicalAgent:
             "dialogue_messages":  [],
             "background_info":    "",
             "summary":            [],
+            "token_stats":        TokenStats(),
             "ask_messages":       AskState(),
             "retrieval_states":   [],
             # 单次执行字段：每次重置
@@ -477,6 +467,7 @@ class MedicalAgent:
                 "dialogue_messages": messages_from_dict(saved["dialogue_messages"]),
                 "background_info": saved["background_info"],
                 "summary": saved["summary"],
+                "token_stats": TokenStats.model_validate(saved["token_stats"]),
                 "ask_messages": _ask_state_from_dict(saved["ask_messages"]),
                 "retrieval_states": [_retrieval_state_from_dict(r) for r in saved["retrieval_states"]],
             })
@@ -488,6 +479,7 @@ class MedicalAgent:
             "dialogue_messages": messages_to_dict(state["dialogue_messages"]),
             "background_info": state["background_info"],
             "summary": state["summary"],
+            "token_stats": state["token_stats"].model_dump(),
             "ask_messages": _ask_state_to_dict(state["ask_messages"]),
             "retrieval_states": [_retrieval_state_to_dict(r) for r in state["retrieval_states"]],
         })
@@ -510,7 +502,7 @@ class MedicalAgent:
         """透传 LangGraph astream(stream_mode="updates", subgraphs=True) 的 {节点名: 更新}。
 
         外部按节点名识别阶段：
-            ask / extract_ask_and_reply / check_update_background /
+            compress_memory / ask / extract_ask_and_reply / check_update_background /
             split_query / search_one（检索子图内，每个子查询完成时一条）/ retrieve / answer
         子图的 namespace 不对外暴露；只有主图的更新合并进 state。
         """

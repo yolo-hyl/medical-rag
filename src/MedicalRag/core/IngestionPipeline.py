@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import List, Dict, Any
 from langchain_core.documents import Document
@@ -102,6 +103,36 @@ class IngestionPipeline:
         self.data_config = data
         self.kb = kb
 
+    async def _insert_batches(self, documents: List[Document]) -> int:
+        """按 data_config.batch_size 分批，起 concurrency 个协程从同一个批次迭代器里取活。
+
+        共享迭代器在单线程事件循环里是安全的，协程之间不会取到同一批；
+        任一批失败就取消其余协程，不再继续写入。
+        """
+        batch_size = self.data_config.batch_size
+        concurrency = self.data_config.concurrency
+        batches = iter([documents[i:i + batch_size] for i in range(0, len(documents), batch_size)])
+        logger.info(f"开始插入 {len(documents)} 个文档（batch_size={batch_size}, concurrency={concurrency}）...")
+
+        bar = tqdm(total=len(documents), desc="入库")
+
+        async def worker() -> int:
+            inserted = 0
+            for batch in batches:
+                inserted += await self.kb.add_documents(batch)
+                bar.update(len(batch))
+            return inserted
+
+        tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
+        try:
+            return sum(await asyncio.gather(*tasks))
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            raise
+        finally:
+            bar.close()
+
     async def run(self, raw_data: List[Dict[str, Any]]) -> bool:
         """运行高级入库流水线"""
 
@@ -116,14 +147,8 @@ class IngestionPipeline:
             logger.info("预处理多向量字段文档...")
             documents = prepare_multi_vector_documents(data_config=self.data_config, raw_documents=raw_data)
 
-            # 3. 批量插入：批内已是批量请求，批次之间保持串行以免打爆 Embedding API 限流
-            logger.info(f"开始插入 {len(documents)} 个文档...")
-            batch_size = 10
-            total_inserted = 0
-
-            for i in tqdm(range(0, len(documents), batch_size)):
-                batch = documents[i:i + batch_size]
-                total_inserted += await self.kb.add_documents(batch)
+            # 3. 批量插入：批内一起做 embedding、一次写入；最多 concurrency 个批次同时进行
+            total_inserted = await self._insert_batches(documents)
 
             logger.info(f"开始构建索引")
             await self.kb.build_index()

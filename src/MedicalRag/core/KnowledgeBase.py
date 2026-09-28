@@ -249,29 +249,37 @@ class MedicalHybridKnowledgeBase:
         summary_dense, text_dense = embedded[0], embedded[1]
         text_sparse = embedded[2] if self.manage_sparse_self else None
 
+        # 向量只放进 rows，不回写 doc.metadata：
+        # documents 的生命周期覆盖整个入库流程，挂上去的向量一条都不会被回收。
+        # 4096 维 × 2 路 × Python float 装箱 ≈ 262 KB/条，5 万条就是十几 GB。
         rows = []
         for i, doc in enumerate(documents):
-            doc.metadata["summary"] = summaries[i]
-            doc.metadata["text"] = texts[i]
-            doc.metadata["summary_dense"] = summary_dense[i]
-            doc.metadata["text_dense"] = text_dense[i]
-
             filtered = {k: v for k, v in doc.metadata.items() if k in AllFields}
             if not self.milvus_config.auto_id:
                 # 如果不采用自动id，则默认id实现为quesiton的hash值，以便插入时覆盖重复数据
                 filtered["pk"] = doc.metadata.get("hash_id", "")
+            filtered["summary"] = summaries[i]
             filtered["text"] = texts[i]
+            filtered["summary_dense"] = summary_dense[i]
+            filtered["text_dense"] = text_dense[i]
             if text_sparse is not None:
                 filtered["text_sparse"] = text_sparse[i]
             rows.append(filtered)
 
-        await insert_rows(
-            client=self.aclient,
-            collection_name=self.milvus_config.collection_name,
-            rows=rows,
-            show_progress=False  # 小批量不显示进度条
-        )
-        return len(rows)
+        # 交给 Milvus 之后立刻断开本批向量的引用，峰值只保留在途的几批
+        del summary_dense, text_dense, text_sparse, embedded, tasks
+
+        inserted = len(rows)
+        try:
+            await insert_rows(
+                client=self.aclient,
+                collection_name=self.milvus_config.collection_name,
+                rows=rows,
+                show_progress=False  # 小批量不显示进度条
+            )
+        finally:
+            rows.clear()
+        return inserted
 
 
     async def _encode_query(self, query: str, anns_field: str):
