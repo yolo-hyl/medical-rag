@@ -148,6 +148,7 @@ class AgentConfig(BaseModel):
     network_search_cnt: int = 10  # 开启联网搜索时，返回的数量
     auto_search_param: bool = True  # 是否开启确定搜索参数
     console_debug: bool = False  # 是否打印图执行过程
+    max_ask_num: int = 3  # 一个问题最多主动追问的次数
 
 # =============================================================================
 # 更新主配置类

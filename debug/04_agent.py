@@ -30,8 +30,8 @@ SID = "debug-agent"
 OTHER_SID = "debug-agent-other"
 
 # 依次喂给 Agent 的用户输入：第一条提问，后面几条回答它的追问。
-# 追问最多 5 轮（MedicalAgent._load_state 里的 max_ask_num），
-# 所以给 5 条，保证一定能走到最终回答。
+# 追问次数上限是 AgentConfig.max_ask_num（默认 3），
+# 给 5 条留足余量，保证一定能走到最终回答。
 REPLIES = [
     "我这两天肚子痛，还拉肚子",
     "大便没有血也不黑，体温 37.8 度，痛在肚子中间偏下",
@@ -93,11 +93,11 @@ async def main():
             worker = make_agent(cfg, agent_cfg, kb, store, power_model) if i == 2 else agent
             t0 = time.time()
             state = await worker.answer(text, session_id=SID)
-            ask = state.get("ask_obj")
+            ask = state["ask_messages"]
             tag = "（新实例）" if i == 2 else ""
-            if ask and ask.need_ask:
-                print(f"[2.{i}] 追问中{tag}（{time.time()-t0:.0f}s，curr_ask_num={state['curr_ask_num']}）")
-                print(f"      {one_line(state['asking_messages'][-1][-1].content, 150)}")
+            if ask.ask_decision.ask_signal:
+                print(f"[2.{i}] 追问中{tag}（{time.time()-t0:.0f}s，curr_ask_num={ask.curr_ask_num}）")
+                print(f"      {one_line(ask.asked_messages[-1][-1].content, 150)}")
             else:
                 print(f"[2.{i}] 已回答{tag}（{time.time()-t0:.0f}s）")
                 print(f"      {one_line(state.get('final_answer'), 300)}")
@@ -106,17 +106,18 @@ async def main():
         saved = await store.get_json(f"medrag:agent:{SID}:state")
         print(f"[3] Redis 只存跨轮字段: {sorted(saved.keys())}")
         print(f"    对话消息 {len(saved['dialogue_messages'])} 条，"
-              f"multi_summary {len(saved['multi_summary'])} 条，"
-              f"curr_ask_num={saved['curr_ask_num']}")
+              f"summary {len(saved['summary'])} 条，"
+              f"检索轮次 {len(saved['retrieval_states'])} 轮，"
+              f"curr_ask_num={saved['ask_messages']['curr_ask_num']}")
         print(f"    background_info={saved['background_info'][:80]!r}")
-        print(f"    单轮字段未落盘: {'performance' not in saved and 'sub_query_results' not in saved}")
+        print(f"    单次执行字段未落盘: {'performance' not in saved and 'final_answer' not in saved}")
 
         # ---- 4) 不同会话互不影响 ----
         other = await agent.answer("糖尿病饮食要注意什么", session_id=OTHER_SID)
         other_saved = await store.get_json(f"medrag:agent:{OTHER_SID}:state")
         print(f"[4] 另一个会话独立: 对话消息 {len(other_saved['dialogue_messages'])} 条，"
-              f"curr_ask_num={other_saved['curr_ask_num']}"
-              f"（{SID} 仍是 {saved['curr_ask_num']}）")
+              f"curr_ask_num={other_saved['ask_messages']['curr_ask_num']}"
+              f"（{SID} 仍是 {saved['ask_messages']['curr_ask_num']}）")
 
         # ---- 5) 流式 ----
         nodes = []

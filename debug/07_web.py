@@ -60,28 +60,34 @@ app = FastAPI(title="Agent 轨迹", lifespan=lifespan)
 def describe(node: str, updates: dict) -> list[str]:
     """把一个节点的状态更新翻译成几行人话"""
     if node == "ask":
-        ask = updates.get("ask_obj")
+        ask = updates.get("ask_messages")
         if ask is None:
             return ["判断完成"]
-        if ask.need_ask:
-            return [f"需要追问（第 {updates.get('curr_ask_num')} 次）"] + \
-                   [f"· {q}" for q in ask.questions]
+        if ask.ask_decision.ask_signal:
+            return [f"需要追问（第 {ask.curr_ask_num} 次）"] + \
+                   [f"· {q}" for q in ask.ask_decision.questions]
         return ["信息已充分，不再追问"]
 
     if node in ("extract_ask_and_reply", "check_update_background"):
         return [f"用户背景：{updates.get('background_info') or '(空)'}"]
 
     if node == "split_query":
-        sq = updates.get("sub_query")
-        if sq is None:
-            return ["未产出拆分结果"]
-        if sq.need_split and sq.sub_query:
-            return [f"拆成 {len(sq.sub_query)} 个子查询"] + [f"· {q}" for q in sq.sub_query]
-        return [f"不拆分，改写为：{sq.rewrite_query or '(空)'}"]
+        states = updates.get("retrieval_states") or []
+        if not states:
+            return ["未产出改写结果"]
+        queries = states[-1].rewritten_queries.rewritten_queries
+        if len(queries) > 1:
+            return [f"拆成 {len(queries)} 个子查询"] + [f"· {q}" for q in queries]
+        return [f"不拆分，改写为：{queries[0] if queries else '(空)'}"]
+
+    if node == "retrieve":
+        states = updates.get("retrieval_states") or []
+        n = len(states[-1].retrieval_outputs) if states else 0
+        return [f"检索完成，汇合 {n} 个子查询结果"]
 
     if node == "search_one":
         lines = []
-        for r in updates.get("sub_query_results", []):
+        for r in updates.get("retrieval_outputs", []):
             lines.append(f"子查询：{r.get('query', '')}")
             lines.append(f"· 检索到 {len(r.get('docs', []))} 篇文档，剩余重试 {r.get('retry')}")
             summary = (r.get("final") or r.get("summary") or "").strip()
@@ -91,8 +97,8 @@ def describe(node: str, updates: dict) -> list[str]:
 
     if node == "answer":
         lines = [updates.get("final_answer") or "(空)"]
-        if updates.get("multi_summary"):
-            lines.append(f"（会话已累积 {len(updates['multi_summary'])} 条摘要）")
+        if updates.get("summary"):
+            lines.append(f"（会话已累积 {len(updates['summary'])} 条摘要）")
         return lines
 
     return [json.dumps(list(updates.keys()), ensure_ascii=False)]

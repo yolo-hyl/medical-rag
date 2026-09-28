@@ -2,7 +2,10 @@ import json
 import logging
 import re
 from functools import partial
-from typing import List, TypedDict, Union
+from typing import List, Union
+
+# Python < 3.12 下 Pydantic 字段只接受 typing_extensions.TypedDict（SearchMessagesState 会被 RetrievalState 引用）
+from typing_extensions import TypedDict
 
 from langchain.output_parsers import OutputFixingParser, PydanticOutputParser
 from langchain_core.documents import Document

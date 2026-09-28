@@ -138,11 +138,8 @@ async def clear_session(store, *session_ids):
 # 假模型：用于不想占 GPU 的快速回归
 # ---------------------------------------------------------------------------
 
-# Agent 的若干节点要求结构化 JSON 输出，这一份同时满足 AskMess 与 SplitQuery
-STRUCTURED_REPLY = (
-    '{"need_ask": false, "questions": [], '
-    '"need_split": false, "sub_query": [], "rewrite_query": "肚子痛"}'
-)
+# Agent 的若干节点要求结构化 JSON 输出，这一份同时满足 AskDecision 与 RewrittenQueries
+STRUCTURED_REPLY = '{"ask_signal": false, "questions": [], "rewritten_queries": ["肚子痛"]}'
 
 
 class FakeLLM(GenericFakeChatModel):

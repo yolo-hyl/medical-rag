@@ -39,11 +39,11 @@ async def main():
     try:
         while True:
             state = await agent.answer(user_input=user_input, session_id=session_id)
-            ask_obj = state.get("ask_obj")
+            ask = state["ask_messages"]
 
-            if ask_obj and ask_obj.need_ask:
+            if ask.ask_decision.ask_signal:
                 # 仍在追问阶段：打印 Agent 的最后一条追问消息
-                reply = state["asking_messages"][-1][-1].content
+                reply = ask.asked_messages[-1][-1].content
                 print(f"\nAgent（需要更多信息）:\n{SEP}\n{reply}\n{SEP}\n")
             else:
                 # 已完成检索与回答：打印最终答案，并提示用户可继续提问
