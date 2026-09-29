@@ -12,7 +12,7 @@ from langchain_core.documents import Document
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
@@ -85,8 +85,8 @@ async def llm_db_search(
     if _should_call_tool(db_ai):
         if show_debug:
             logger.info(f"开始db检索，检索参数：{db_ai.additional_kwargs['tool_calls'][0]['function']['arguments']}")
-        tool_msgs : ToolMessage = await db_tool_node.ainvoke([db_ai])
-        state["other_messages"].append(tool_msgs)
+        tool_msgs: List[ToolMessage] = await db_tool_node.ainvoke([db_ai])
+        state["other_messages"].extend(tool_msgs)
         state["docs"].extend(json_to_list_document(tool_msgs[0].content))
         if show_debug:
             docs = state["docs"]
@@ -164,8 +164,8 @@ async def llm_network_search(
         
         # 检查是否有工具调用
         if _should_call_tool(search_ai):
-            tool_msgs: ToolMessage = await network_tool_node.ainvoke([search_ai])
-            state["other_messages"].append(tool_msgs)
+            tool_msgs: List[ToolMessage] = await network_tool_node.ainvoke([search_ai])
+            state["other_messages"].extend(tool_msgs)
             
             # 更新文档
             remain_doc = result.remain_doc_index
@@ -379,7 +379,8 @@ class SearchGraph:
         out_state = await self.run(self.init_state(query))
         return out_state.get("final", "") or out_state.get("summary", "") or "（空）"
 
-    async def run(self, init_state: SearchMessagesState) -> SearchMessagesState:
+    async def run(self, init_state: SearchMessagesState, config: RunnableConfig | None = None) -> SearchMessagesState:
+        """config 由外层图节点传入时，本图的节点事件会出现在外层 astream(subgraphs=True) 里"""
         if self.search_graph is None:
             self.build_search_graph()
-        return await self.search_graph.ainvoke(init_state)
+        return await self.search_graph.ainvoke(init_state, config=config)

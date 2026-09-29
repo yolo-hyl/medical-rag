@@ -4,10 +4,11 @@
     python debug/08_ingest_qa.py --limit 1000   # 先入一小部分，看效果和速度
     python debug/08_ingest_qa.py                # 全量
 然后：
-    MEDRAG_WEB_COLLECTION=medrag_qa50k python debug/07_web.py
+    python debug/07_web.py      # 集合已存在时 07 直接用，不写样例也不删
 
-集合名默认 medrag_qa50k，故意不用 medrag_debug：03~07 跑完都会删掉 medrag_debug。
-storage.yaml 里 drop_old: true，所以每次运行都会先删掉同名集合再重建。
+集合名默认 medrag_debug。注意 03~06 跑完会删掉 medrag_debug，想保留就用 --collection 换个名字。
+集合不存在时新建；已存在时看 storage.yaml 的 drop_old：true 删掉重建，false 在原集合上追加
+（主键是问题的哈希，重复的问题会覆盖）。
 """
 import argparse
 import asyncio

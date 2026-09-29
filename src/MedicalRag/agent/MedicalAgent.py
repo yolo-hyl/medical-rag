@@ -92,8 +92,20 @@ async def compress_memory(state: MedicalAgentState, memory: BaseMemory) -> Medic
     return state
 
 
-async def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
-    """判断是否需要向用户追问，并输出追问问题。"""
+async def ask_judge(state: MedicalAgentState, llm: BaseChatModel, max_ask_num: int) -> MedicalAgentState:
+    """判断是否需要向用户追问，并输出追问问题。
+
+    已追问满 max_ask_num 次时，本次输入就是对最后一次追问的回答：只记下回答，不再调 LLM。
+    curr_ask_num 照常加 1，变成 max_ask_num + 1，外部据此区分"达到上限"与"信息已充分"。
+    """
+    ask = state["ask_messages"]
+    if ask.curr_ask_num >= max_ask_num:
+        ask.asked_messages[-1].append(HumanMessage(content=state["curr_input"]))
+        ask.asked_messages[-1].append(AIMessage(content="已达最大追问次数，不再询问"))
+        ask.ask_decision = AskDecision()
+        ask.curr_ask_num += 1
+        return state
+
     parser = PydanticOutputParser(pydantic_object=AskDecision)
     fixing = OutputFixingParser.from_llm(parser=parser, llm=llm)
 
@@ -106,7 +118,6 @@ async def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgen
         ("human", get_prompt_template("ask_user")["user"]),
     ])
 
-    ask = state["ask_messages"]
     curr_ask_mess = [] if ask.curr_ask_num == 0 else ask.asked_messages[-1]
     ai = await (prompt | llm | RunnableLambda(strip_think_get_tokens)).ainvoke({
         "background_info": state["background_info"],
@@ -139,7 +150,8 @@ def route_ask_again(state: MedicalAgentState, max_ask_num: int) -> str:
     - "pass" → 信息已充分（或达到最大追问次数），继续后续处理
     """
     ask = state["ask_messages"]
-    if ask.ask_decision.ask_signal and ask.curr_ask_num < max_ask_num:
+    # ask_judge 已先把 curr_ask_num 加 1，用 <= 才能真正追问 max_ask_num 次
+    if ask.ask_decision.ask_signal and ask.curr_ask_num <= max_ask_num:
         return "ask"
     return "pass"
 
@@ -162,34 +174,101 @@ async def extract_background_info(state: MedicalAgentState, llm: BaseChatModel) 
     return state
 
 
-async def check_update_background(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
-    """第二轮及以后：检查用户输入是否在纠正或补充背景信息，如是则更新。"""
+async def _update_background(state: MedicalAgentState, llm: BaseChatModel, user_text: str) -> None:
+    """让 LLM 判断 user_text 是否在纠正或补充背景信息，并写回 background_info"""
     tmpl = get_prompt_template("update_background")
     result = await llm.ainvoke([
         SystemMessage(content=tmpl["system"]),
         HumanMessage(content=tmpl["user"].format(
             background_info=state.get("background_info", ""),
-            question=state["curr_input"],
+            question=user_text,
         )),
     ])
-    updated = re.sub(r"<think>.*?</think>\s*", "", result.content, flags=re.DOTALL).strip()
-    state["background_info"] = updated
+    state["background_info"] = re.sub(r"<think>.*?</think>\s*", "", result.content, flags=re.DOTALL).strip()
+
+
+async def check_update_background(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+    """第二轮及以后：检查用户输入是否在纠正或补充背景信息，如是则更新。"""
+    await _update_background(state, llm, state["curr_input"])
+    return state
+
+
+async def follow_ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+    """第二轮及以后：结合对话历史、背景与本轮输入，谨慎判断是否要补充背景信息，最多追问一次。
+
+    追问内容只记进 AskState.asked_messages（新开一轮），不进 dialogue_messages，
+    免得占用全局上下文；需要追问时 curr_ask_num 置 1，由 route_entry 把下一次输入交给 follow_reply。
+    """
+    parser = PydanticOutputParser(pydantic_object=AskDecision)
+    fixing = OutputFixingParser.from_llm(parser=parser, llm=llm)
+    tmpl = get_prompt_template("follow_ask")
+
+    # 直接构造消息而非 ChatPromptTemplate：摘要、历史里可能含有大括号
+    ai = strip_think_get_tokens(await llm.ainvoke([
+        SystemMessage(content=tmpl["system"].format(
+            format_instructions=parser.get_format_instructions(),
+            summary="\n".join(state["summary"]) or "（无）",
+        )),
+        *state["dialogue_messages"],
+        HumanMessage(content=tmpl["user"].format(
+            background_info=state["background_info"],
+            question=state["curr_input"],
+        )),
+    ]))
+    decision: AskDecision = await fixing.aparse(ai["msg"])
+
+    ask = state["ask_messages"]
+    if decision.ask_signal and decision.questions:
+        ask.asked_messages.append([
+            HumanMessage(content=state["curr_input"]),
+            AIMessage(content="\n".join(decision.questions)),
+        ])
+        ask.ask_decision = decision
+        ask.curr_ask_num = 1
+    else:
+        ask.ask_decision = AskDecision()
+
+    state["token_stats"].add(ai["msg_len"], ai["msg_token_len"])
+    state["performance"].append(("follow_ask", ai))
+    return state
+
+
+def route_follow_ask(state: MedicalAgentState) -> str:
+    """follow_ask 之后：要追问 → 结束本轮等待用户回答；否则照常更新背景并检索"""
+    return "ask" if state["ask_messages"].curr_ask_num > 0 else "pass"
+
+
+async def merge_follow_reply(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState:
+    """用户回答了 follow_ask 的追问：回答记进 AskState，再据这一轮问答补充背景信息。
+
+    本轮要回答的仍是触发追问的那句话（见 resolve_round_question），它此前没有经过
+    check_update_background，所以连同追问和回答一起交给 LLM 更新背景。
+    """
+    round_ = state["ask_messages"].asked_messages[-1]
+    round_.append(HumanMessage(content=state["curr_input"]))
+    question, asked, reply = round_[0].content, round_[1].content, round_[2].content
+    await _update_background(state, llm, f"用户提问：{question}\n补充询问：{asked}\n用户回答：{reply}")
     return state
 
 
 def route_entry(state: MedicalAgentState) -> str:
     """
     START 路由：
-    - 有 background_info → 跳过追问，直接更新背景并检索
-    - 无 background_info → 进入追问流程
+    - 无 background_info → 首轮追问流程（ask）
+    - 有 background_info 且上一次 follow_ask 追问过（curr_ask_num > 0）→ 本次输入是对追问的回答（follow_reply）
+    - 有 background_info → 谨慎判断是否需要补充背景（follow_ask）
     """
-    return "check_update_background" if state.get("background_info") else "ask"
+    if not state.get("background_info"):
+        return "ask"
+    if state["ask_messages"].curr_ask_num > 0:
+        return "follow_reply"
+    return "follow_ask"
 
 
 def resolve_round_question(state: MedicalAgentState) -> str:
     """本轮要回答的问题：
-    - 走了追问路径（curr_ask_num > 0，answer 结束时会归零）→ 触发本次追问的那句话，
-      追问中补充的信息已由 extract_background_info 写进 background_info
+    - 走了追问路径（ask 或 follow_ask，curr_ask_num > 0，answer 结束时会归零）→ 触发本次追问的那句话，
+      追问中补充的信息已由 extract_background_info / merge_follow_reply 写进 background_info
     - 没走追问 → 当前输入
     """
     ask = state["ask_messages"]
@@ -253,9 +332,13 @@ def fan_out_queries(state: RetrievalState) -> List[Send]:
     return [Send("search_one", {"query": q}) for q in queries]
 
 
-async def search_one(task: SearchTask, search_graph: SearchGraph) -> dict:
-    """单个子查询的执行节点，结果经 retrieval_outputs 的 add reducer 汇合"""
-    result = await search_graph.run(search_graph.init_state(task["query"]))
+async def search_one(task: SearchTask, config: RunnableConfig, search_graph: SearchGraph) -> dict:
+    """单个子查询的执行节点，结果经 retrieval_outputs 的 add reducer 汇合。
+
+    config 同 retrieve 一样要显式传下去，检索图内部的 db_search / rag / judge 等节点
+    才会出现在 astream(subgraphs=True) 里。
+    """
+    result = await search_graph.run(search_graph.init_state(task["query"]), config=config)
     return {"retrieval_outputs": [result]}
 
 
@@ -313,6 +396,9 @@ async def gather_answer(state: MedicalAgentState, llm: BaseChatModel, budget: To
 # BaseMessage / Document 不能直接 json.dumps，逐字段转换
 
 _SEARCH_MESSAGE_FIELDS = ("main_messages", "other_messages")
+# _save_state 写入的跨轮字段
+_SAVED_KEYS = {"dialogue_messages", "background_info", "summary", "token_stats",
+               "ask_messages", "retrieval_states"}
 
 
 def _ask_state_to_dict(ask: AskState) -> dict:
@@ -408,19 +494,30 @@ class MedicalAgent:
         g = StateGraph(MedicalAgentState)
 
         g.add_node("compress_memory",        partial(compress_memory,         memory=self.memory))
-        g.add_node("ask",                    partial(ask_judge,               llm=self.normal_llm))
+        g.add_node("ask",                    partial(ask_judge,               llm=self.normal_llm,
+                                                     max_ask_num=self.agent_config.max_ask_num))
         g.add_node("extract_ask_and_reply",  partial(extract_background_info, llm=self.normal_llm))
         g.add_node("check_update_background", partial(check_update_background, llm=self.normal_llm))
+        g.add_node("follow_ask",             partial(follow_ask_judge,        llm=self.normal_llm))
+        g.add_node("follow_reply",           partial(merge_follow_reply,      llm=self.normal_llm))
         g.add_node("split_query",            partial(judge_split_query,       llm=self.power_model))
         g.add_node("retrieve",               partial(retrieve,                retrieval_app=self.build_retrieval_graph()))
         g.add_node("answer",                 partial(gather_answer,           llm=self.normal_llm, budget=self.budget))
 
-        # START → 每轮先收缩短期记忆 → 条件路由：有背景则跳过追问
+        # START → 每轮先收缩短期记忆 → 条件路由：无背景走首轮追问，有背景走谨慎追问
         g.add_edge(START, "compress_memory")
         g.add_conditional_edges("compress_memory", route_entry, {
             "ask": "ask",
-            "check_update_background": "check_update_background",
+            "follow_ask": "follow_ask",
+            "follow_reply": "follow_reply",
         })
+
+        # 第二轮及以后：最多追问一次；追问 → 结束本轮等回答，下一次输入进 follow_reply
+        g.add_conditional_edges("follow_ask", route_follow_ask, {
+            "ask": END,
+            "pass": "check_update_background",
+        })
+        g.add_edge("follow_reply", "split_query")
 
         g.add_conditional_edges(
             "ask",
@@ -462,6 +559,10 @@ class MedicalAgent:
         }
 
         saved = await self.store.get_json(self._state_key(session_id))
+        if saved and not _SAVED_KEYS <= saved.keys():
+            # 旧版本存下的状态字段对不上，读了只会 KeyError，丢掉从头开始
+            logger.warning(f"会话 {session_id} 的已存状态格式不兼容，已忽略并从头开始")
+            saved = None
         if saved:
             state.update({
                 "dialogue_messages": messages_from_dict(saved["dialogue_messages"]),
@@ -502,8 +603,10 @@ class MedicalAgent:
         """透传 LangGraph astream(stream_mode="updates", subgraphs=True) 的 {节点名: 更新}。
 
         外部按节点名识别阶段：
-            compress_memory / ask / extract_ask_and_reply / check_update_background /
+            compress_memory / ask / extract_ask_and_reply / follow_ask / follow_reply / check_update_background /
             split_query / search_one（检索子图内，每个子查询完成时一条）/ retrieve / answer
+        以及每个子查询内部检索图的 db_search / web_search / rag / judge / finish_success / finish_fail，
+        它们的更新是完整的 SearchMessagesState，可用其中的 query 区分属于哪个子查询。
         子图的 namespace 不对外暴露；只有主图的更新合并进 state。
         """
         async with self.store.lock(session_id):

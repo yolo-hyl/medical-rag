@@ -102,10 +102,10 @@ class MedicalHybridKnowledgeBase:
         """ 使用原生 Milvus 客户端创建Collection"""
         assert self.embedding_config.summary_dense.dimension == self.embedding_config.text_dense.dimension, "多向量单行存储时，两个嵌入模型嵌入向量维度必须相同"
         dim = self.embedding_config.summary_dense.dimension
-        if not self.milvus_config.drop_old:
-            return self.client  # 如果不删除老集合，那就直接返回，不要创建
-
+        # 集合已存在：drop_old=false 时直接沿用（追加写入），否则删掉重建；不存在则总是新建
         if self.client.has_collection(collection_name=self.milvus_config.collection_name):
+            if not self.milvus_config.drop_old:
+                return self.client
             self.client.drop_collection(collection_name=self.milvus_config.collection_name)
         schema = MilvusClient.create_schema(
             auto_id=self.milvus_config.auto_id,

@@ -3,7 +3,7 @@ milvus:
   uri: http://localhost:19530
   token: null
   collection_name: medrag_debug
-  drop_old: true
+  drop_old: false
   auto_id: false
 
 postgres:
