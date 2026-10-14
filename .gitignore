@@ -31,3 +31,6 @@ out/
 .storybook-out/
 
 .venv
+# 下载的数据集与评测产出（体积大，按 docs/phase1/data.md 用脚本重新生成）
+/data/benchmarks/
+/runs/
