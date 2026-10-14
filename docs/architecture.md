@@ -206,7 +206,7 @@ class BaseReranker(ABC):
 
 ```python
 rag = MedRAG(
-    workspace="medqa_zh",                       # 映射为 collection 名、文档状态的命名空间
+    workspace="medqa_zh",                       # 映射为 collection 名、文档状态的命名空间；一个 workspace 只有一种语言（D16）
     llm=OpenAICompatLLM.from_config(cfg.llm),
     embedding=OpenAICompatEmbedding.from_config(cfg.embedding),
     vector_storage=MilvusVectorStorage(cfg.storage.milvus, dense_fields=["content", "summary"]),
@@ -304,7 +304,7 @@ embedding:
 | `content_sparse` | SPARSE_FLOAT_VECTOR | 自管理 BM25 或 Milvus Function 输出 |
 
 - VARCHAR 的上限是 65,535 **字节**，中文每个字占 3 字节，所以单个字段大约只能放 2.1 万字。切块器必须保证 `content` 不超过这个长度，这也是旧版超长 answer 的一个隐患。
-- 中英文混合入库时，analyzer 怎么选（多语言 analyzer，还是按语言分 collection）要先验证 Milvus 2.6 的能力，见 D16。
+- **中英文隔离（D16，已定）**：一个 workspace 只能有一种语言，`lang` 写在 workspace 配置里，建表时据此选择 analyzer（中文 jieba / 英文 standard）。入库时，如果文档的 `lang` 和 workspace 不一致，直接报错，不允许静默混入。`Chunk.lang` 字段保留，供以后做多语言混合检索。
 
 ### 文档状态（D4，待确认）
 生产环境用 PostgreSQL（`deploy/` 里已经部署）；单测和快速上手用本地 JSON。

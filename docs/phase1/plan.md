@@ -79,7 +79,7 @@
 2. 实现 `SectionParagraphChunker`，切块时保留章节路径。
 3. 实现 `eval/`：RunManifest、Hit@k / MRR、选择题评分、GraphRAG-Bench 输出格式、`eval compare`。
 4. 实现 `MedRAG.aquery`（上下文组装 + 引用编号），并把 `apps/` 改为调用 `aquery`。
-5. 在 c_mini 上做 OCR 清洗实验（D13）。
+5. 用 LLM 对 c_mini 做 OCR 纠错（D13），产出纠错 diff 日志，完成人工抽检。
 
 **门槛**
 
@@ -97,7 +97,7 @@
 
 **产出**：一份对比报告。回答两个问题：
 - 在哪些题型或科目上，混合检索不如 LightRAG；
-- OCR 清洗带来了多大收益。
+- LLM 纠错前后，c_mini 的检索和答题指标差了多少（作为对照数据，不设门槛）。
 
 这份报告作为第二阶段（图谱）优先级的依据。
 
@@ -139,5 +139,5 @@
 | M0 的回归门槛受 Embedding 服务波动影响 | 基准结果固定下来以后，同一份配置再跑两次，用两次之间的差异作为噪声底线 |
 | Milvus 原生 BM25 的中文分词不如 pkuseg | D3 的 A/B 实验数据说了算；必要时给 jieba 加载医学词典 |
 | LightRAG 版本升级导致 `run_lightrag.py` 的改动方式失效 | 固定 LightRAG 版本，并记录到 RunManifest |
-| OCR 的 LLM 纠错改坏原文 | 只允许字符级替换（纠错前后长度基本一致）；diff 要抽检；保留原文副本 |
+| LLM 纠错改坏原文 | 长度比、编辑距离、数字序列三项机器校验，不通过就保留原文；人工抽检 100 段，误改率超过 2% 就重来；保留原文副本 |
 | 范围蔓延 | 第二阶段的事项一律记入 decisions.md 的待办，不进入第一阶段 |

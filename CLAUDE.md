@@ -64,8 +64,9 @@ python scripts/02_ingest_data.py               # 示例：入库前 100 条 QA
 - 注意数据里已知的坑：
   - `new_qa_200` 实际是 198 条，其中 `new_answer` 是 LLM 改写的，**不能当参考答案**；
   - CMB 的 test 集没有答案；
-  - MedQA 中文教材的 OCR 错字很多；
+  - MedQA 中文教材的 OCR 错字很多，统一用 LLM 纠错（D13），丢失的数字不补；
   - GraphRAG-Bench 的证据句基本不在原文里，只能做语义匹配。
+- 中英文数据暂时隔离（D16）：一个 workspace 只放一种语言。
 - 大文件（数据集、向量词表、评测产出）不提交。下载通过 `medrag data download`（M3 实现）完成，并校验 sha256。
 
 ## 需要先和维护者确认的事

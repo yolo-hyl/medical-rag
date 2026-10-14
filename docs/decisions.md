@@ -21,10 +21,10 @@
 | D10 | Agent 工具参数 | 采纳建议·待确认 | 改为 `query + filters`，LLM 不再接触 `anns_field` 和 `expr` | M0 / M3 |
 | D11 | `software/` 前后端 | 采纳建议·待确认 | 第一阶段冻结，只修启动失败的 import | — |
 | D12 | 分支 | **已定** | 删除 `v2.0.0-schema`，直接在 `v2.0.0-rebuild` 上开发 | — |
-| D13 | 中文教材的 OCR 纠错 | 待定（M3） | 建议在 c_mini 上做三组对比实验：不清洗 / 只用错字表 / 错字表 + LLM 纠错，用数据决定 | M3 |
+| D13 | 中文教材的 OCR 纠错 | **已定** | 统一用 LLM 纠错，不维护人工错字表。纠错提示词 `ocr_correct` 纳入提示词版本管理，约束和抽检方式见 [phase1/data.md](phase1/data.md) 第 3 节 | M3 |
 | D14 | A 层非医疗内容的过滤方式 | 采纳建议·待确认 | 用 LLM 判断，再人工抽检 100 条 | M3 |
 | D15 | 提示词模板语法 | 采纳建议·待确认 | Jinja2 + StrictUndefined（新增依赖 `jinja2`） | M0 |
-| D16 | 中英文混合入库 | 待定（M1） | 先验证 Milvus 2.6 的多语言 analyzer；不支持的话就按语言分 workspace | M1 |
+| D16 | 中英文数据如何入库 | **已定** | 暂时隔离：中英文分属不同的 workspace（不同的 collection 和文档状态命名空间），一个 workspace 只有一种语言和一种 analyzer。多语言混合检索留到以后 | M1 |
 
 ## 第二阶段待办（不进入第一阶段）
 
