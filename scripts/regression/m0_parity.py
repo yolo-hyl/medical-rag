@@ -1,6 +1,9 @@
 """M0 回归门槛：v2 基线与新实现在 A 层回归语料上的检索结果一致性
 
-门槛（docs/phase1/plan.md M0）：同一份配置下，198 题 top-10 重合率 >= 99%，Hit@1/5/10 差值在 ±1pp 以内。
+门槛（D17，docs/phase1/plan.md M0）：
+- 硬门槛：`verify` 逐项一致——两个集合逐行比对数据、新旧代码的查询编码，都必须 0 差异；
+- 软门槛：检索指标落在噪声范围内。Milvus 的 HNSW 近似检索加上并发写入，同一实现重跑的 top-10 重合率也只有约 91%，
+  所以用 `compare --rerun` 传入新实现重跑一次的结果，以两次重跑的差异再加 2pp 作为容差；不传时检索指标只作参考。
 
 用法（在仓库根目录执行）：
 
@@ -17,7 +20,9 @@
     PYTHONPATH=/tmp/v2base/src python scripts/regression/m0_parity.py run --impl old ... --out runs/m0/old.json
 
     # 4. 对比
-    python scripts/regression/m0_parity.py compare runs/m0/old.json runs/m0/new.json
+    python scripts/regression/m0_parity.py verify ...                     # 硬门槛（需要旧包在 PYTHONPATH 上）
+    python scripts/regression/m0_parity.py run --impl new --out runs/m0/new_rerun.json ...   # 再跑一次，量出噪声
+    python scripts/regression/m0_parity.py compare runs/m0/old.json runs/m0/new.json --rerun runs/m0/new_rerun.json
 
 两边都使用 v2 默认的检索配置：summary_dense(COSINE) + text_sparse(IP) 加权融合 0.8 / 0.2，返回 10 条。
 """
@@ -195,19 +200,41 @@ def _hits(results):
     return hit, mrr
 
 
+def _overlap(a, b):
+    return sum(len(set(a[q]) & set(b[q])) / max(1, len(a[q])) for q in a) / len(a)
+
+
+def _load_results(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))["results"]
+
+
+SLACK = 0.02   # 噪声之外再留的余量
+
+
 def cmd_compare(args):
-    old = json.loads(Path(args.old).read_text(encoding="utf-8"))["results"]
-    new = json.loads(Path(args.new).read_text(encoding="utf-8"))["results"]
+    """软门槛：检索指标的新旧差异不超过同一实现重跑的波动 + 2pp；硬门槛见 verify"""
+    old, new = _load_results(args.old), _load_results(args.new)
     assert old.keys() == new.keys(), "两边的题目不一致"
-    overlap = sum(len(set(old[q]) & set(new[q])) / max(1, len(old[q])) for q in old) / len(old)
+    overlap = _overlap(old, new)
     identical = sum(old[q] == new[q] for q in old)
     (h_old, mrr_old), (h_new, mrr_new) = _hits(old), _hits(new)
     print(f"题目数：{len(old)}；top-10 集合重合率：{overlap:.2%}；排序完全一致：{identical}/{len(old)}")
     print(f"{'':8s}{'Hit@1':>8s}{'Hit@5':>8s}{'Hit@10':>8s}{'MRR':>8s}")
     for name, h, mrr in (("v2", h_old, mrr_old), ("medrag", h_new, mrr_new)):
         print(f"{name:8s}{h[1]:8.2%}{h[5]:8.2%}{h[10]:8.2%}{mrr:8.4f}")
-    passed = overlap >= 0.99 and all(abs(h_old[k] - h_new[k]) <= 0.01 for k in (1, 5, 10))
-    print("M0 门槛：" + ("通过" if passed else "未通过"))
+
+    if not args.rerun:
+        print("未提供 --rerun：检索指标只作参考，不做判定（硬门槛以 verify 为准）")
+        return
+    rerun = _load_results(args.rerun)
+    assert rerun.keys() == new.keys(), "重跑结果的题目不一致"
+    noise_overlap = _overlap(new, rerun)
+    h_rerun, _ = _hits(rerun)
+    tolerance = {k: abs(h_new[k] - h_rerun[k]) + SLACK for k in (1, 5, 10)}
+    print(f"噪声底线（新实现重跑两次）：重合率 {noise_overlap:.2%}；"
+          + "，".join(f"Hit@{k} 容差 ±{tolerance[k]:.2%}" for k in (1, 5, 10)))
+    passed = overlap >= noise_overlap - SLACK and all(abs(h_old[k] - h_new[k]) <= tolerance[k] for k in (1, 5, 10))
+    print("软门槛：" + ("通过" if passed else "未通过"))
     sys.exit(0 if passed else 1)
 
 
@@ -260,7 +287,7 @@ def cmd_verify(args):
     bad = asyncio.run(encode_all())
     print(f"查询编码：198 题 × 3 路，不一致 {bad} 处")
     passed = not mismatch and bad == 0
-    print("代码行为一致性：" + ("通过" if passed else "未通过"))
+    print("硬门槛（代码行为一致性）：" + ("通过" if passed else "未通过"))
     sys.exit(0 if passed else 1)
 
 
@@ -304,9 +331,10 @@ def main():
     p.add_argument("--milvus-uri", default="http://localhost:19530")
     p.set_defaults(func=cmd_verify)
 
-    p = sub.add_parser("compare")
+    p = sub.add_parser("compare", help="软门槛：检索指标的差异是否在噪声范围内")
     p.add_argument("old")
     p.add_argument("new")
+    p.add_argument("--rerun", default=None, help="新实现重跑一次的结果，用来量出噪声；不传时只输出指标")
     p.set_defaults(func=cmd_compare)
 
     args = parser.parse_args()

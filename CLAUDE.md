@@ -14,7 +14,7 @@
 医疗领域的 RAG 库。正在从 v2（以 QA 数据为中心的应用）重构为像 LightRAG 那样分层抽象、专攻医疗的通用 RAG 库。
 
 - **开发分支**：`v2.0.0-rebuild`。`v2.0.0` 是重构前的基线。
-- **当前状态**：M0（搬家）已完成，包名为 `medrag`，代码在 `src/medrag/`；下一步是 M1（统一 Schema 与存储抽象）。M0 门槛里的"重合率"一项待维护者确认（D17）。动手之前先看 `docs/phase1/plan.md`，确认当前处于哪个里程碑。
+- **当前状态**：M0（搬家）已完成并通过门槛（门槛按 D17 调整），包名为 `medrag`，代码在 `src/medrag/`；下一步是 M1（统一 Schema 与存储抽象）。动手之前先看 `docs/phase1/plan.md`，确认当前处于哪个里程碑。
 - **过渡期的类型**：M1 之前检索结果仍用 `medrag.types.LegacyDocument`（字段与 LangChain Document 相同），知识库仍是 v2 形态的 `MedicalHybridKnowledgeBase`；新代码不要在这些过渡类型上继续扩展功能，扩展放到 M1 的 Document / Chunk / BaseVectorStorage 上。
 - **Python 3.12**（D19，FalkorDBLite 的要求）。
 - **服务可以不配地址**（D18）：Milvus / Redis / PostgreSQL / Neo4j 没有配置地址时，分别降级为 Milvus Lite / fakeredis / SQLite / FalkorDBLite，选择逻辑只在 `src/medrag/storage/backends.py`。包内默认 `storage.yaml` 不配地址；连接 `deploy/` 的服务用 `deploy/storage.yaml` 覆盖。新写的存储代码必须同时支持两种后端，并在两种后端上各测一遍。
@@ -74,7 +74,7 @@ python -m medrag.testing.fake_openai --port 8999   # 没有密钥时的假模型
   - B 层：GraphRAG-Bench medical，用来对标 LightRAG；
   - C 层：`medqa_zh:c_mini`，中文主评测。
 - **dev 集用于迭代，test 集用于验收**。提示词和检索参数都不要在 test 集上调。
-- 每个里程碑都必须先通过 A 层回归（`docs/phase1/plan.md` 中的门槛）才能进入下一步。
+- 每个里程碑都必须先通过 A 层回归（`docs/phase1/plan.md` 中的门槛）才能进入下一步。回归门槛分两层（D17）：硬门槛看代码行为是否一致（逐行比对数据、查询编码），软门槛要求检索指标的差异不超过同一实现重跑的波动再加 2pp；不要用"重合率接近 100%"这类比 Milvus 自身波动还紧的标准。
 - Milvus 批量写入后必须先 flush 再建索引、再检索：未封存的增长段只能走临时索引，召回会明显偏低，且结果随封存时机变化（M0 实测）。
 - Milvus 的 HNSW 检索加上并发写入，同一实现重跑的 top-10 重合率约 91%；判断"行为是否一致"时用 `scripts/regression/m0_parity.py verify`（逐行比对数据和查询编码），不要只看检索结果。
 - 注意数据里已知的坑：

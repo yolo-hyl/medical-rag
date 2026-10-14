@@ -30,7 +30,7 @@
 
 ## 2. 里程碑
 
-### M0 搬家（行为不变）　**状态：已完成，门槛中的重合率一项待定（D17）**，见 [m0-report.md](m0-report.md)
+### M0 搬家（行为不变）　**状态：已完成并通过门槛（门槛按 D17 调整）**，见 [m0-report.md](m0-report.md)
 
 1. 新建 `src/medrag/` 目录结构和根目录的 `pyproject.toml`（extras：`milvus / redis / pg / agent / eval / data`），删除 `src/setup.py`。
 2. 实现 `llm/openai_compat.py`，替换掉 `core/utils.py` 里的 LangChain 客户端；`apps/` 改为通过 `langchain_adapter` 获取 ChatModel。
@@ -41,7 +41,9 @@
 **门槛**
 
 - 在旧版 v2 实现上跑出 A 层 198 题的 top-10 结果，并保存为基准文件；
-- 新实现在同一份配置下，top-10 重合率 ≥ 99%，Hit@1/5/10 的差值在 ±1pp 以内；
+- **硬门槛**：`m0_parity.py verify` 逐项一致——两个集合逐行比对数据、新旧代码的查询编码，都是 0 差异；
+- **软门槛**：检索指标的新旧差异不超过同一实现重跑两次的波动再加 2pp（`m0_parity.py compare --rerun`）；
+  最初定的"top-10 重合率 ≥ 99%、Hit@k 差值 ±1pp"低于 Milvus 近似检索本身的波动，已按 D17 放开；
 - `scripts/02–08` 都能跑通；
 - 提示词一致性测试通过。
 
