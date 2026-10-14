@@ -1,11 +1,11 @@
 import asyncio
 import logging
-from medrag.config import ConfigLoader
+from _common import config_loader
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 from medrag.config import FusionSpec, SearchRequest, SingleSearchRequest
 
 async def main():
-    config_manager = ConfigLoader()
+    config_manager = config_loader()
     cfg = config_manager.config
     kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     # 单一向量检索

@@ -10,7 +10,7 @@
 | OpenAI 兼容模型层 | `llm/openai_compat.py`：`OpenAICompatLLM`、`OpenAICompatEmbedding`（分批、并发、顺序保持、可选 `dimensions`、思考内容剥离、流式 usage）；`apps/` 通过 `llm/langchain_adapter.py` 用同一份配置构造 `ChatOpenAI` |
 | 版本化提示词 | `PromptRegistry` + 15 个提示词的 `v1.zh.yaml`（`format: fstring`，与 v2 原文逐字一致）+ `prompts.lock` + `python -m medrag.prompts list/show/check/lock` |
 | 模块迁移 | 按 plan.md 第 3 节迁移；核心层（`apps/` 以外）不再 import LangChain，由 `tests/test_layering.py` 检查 |
-| scripts / debug / tests | 全部改为 `medrag`；`debug/common.py` 里绕开 v2 已知问题的三处补丁已删除（包里已修复） |
+| scripts / debug / tests | 全部改为 `medrag`；`debug/common.py` 里绕开 v2 已知问题的三处补丁已删除（包里已修复）。M0 之后 `debug/` 整体删除，试用与联调统一用 `scripts/`（配置在 `scripts/conf/`） |
 
 ### 迁移过程中修复的问题
 
@@ -78,7 +78,21 @@
 
 门槛怎么调整需要你来定，见 [decisions.md](../decisions.md) D17。
 
+### 2.4 补充：升级到 Python 3.12 + pymilvus 2.6 之后重跑（D19、D20）
+
+为支持未配置服务地址时降级到 Milvus Lite（D18），依赖升级到 Python 3.12、pymilvus 2.6.17、milvus-lite 3.2.2。升级后在同样的流程下重跑一次（新旧实现都运行在新环境里，连接真实的 Milvus 2.6.0）：
+
+| 对比 | top-10 集合重合率 | 排序完全一致 | Hit@1 | Hit@5 | Hit@10 | MRR |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2（`cff9b8e`） | — | — | 34.85% | 48.99% | 49.49% | 0.4059 |
+| medrag | 90.81%（相对 v2） | 85/198 | 36.36% | 50.00% | 50.51% | 0.4190 |
+
+- `verify`：数据层 9,999 行逐行比对 **0 处不一致**，查询编码 198 题 × 3 路 **0 处不一致**。代码行为与 v2 一致的结论不变。
+- Hit@1 相差 +1.52pp，**超出了 ±1pp**。198 题里一道题就是 0.505pp，这里是 3 道题。数据和查询编码都完全一致，差异只能来自 Milvus 近似检索与并发写入的不确定性：重合率 90.81% 与噪声底线（约 91%）一致。这说明在 198 题的规模下，±1pp 和"重合率 ≥ 99%"一样，都比检索本身的波动还要紧。门槛的修改建议见 D17。
+
+另外，全部测试在新环境下通过（69 个）。端到端、会话、SQL、图的用例在降级实现与真实服务上各跑一遍。
+
 ## 3. 需要你在本地补跑的
 
 1. 用真实 embedding（DashScope `text-embedding-v4`）重跑一次 A 层回归。用法见脚本文件头；把 `--base-url`、`--model`、`--api-key-env DASHSCOPE_API_KEY` 换成真实服务即可，入库约需 1 万条 × 2 次 embedding 调用。
-2. 在有模型的环境里跑一遍 `scripts/05–08` 和 `debug/03、04、05、07`。
+2. 在有模型的环境里跑一遍 `scripts/05–08`。

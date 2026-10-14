@@ -8,18 +8,18 @@ from medrag.config import ConfigLoader, PostgresConfig, RedisConfig, read_secret
 
 
 @pytest.fixture(scope="module")
-def config():
-    return ConfigLoader().config
+def config(service_config):
+    return service_config
 
 
-@pytest.mark.services
+@pytest.mark.services("milvus")
 def test_deploy_env_loaded(config):
     # ConfigLoader 应自动加载 deploy/.env 中的密码
     for env_name in (config.postgres.password_env, config.redis.password_env, config.neo4j.password_env):
         assert read_secret(env_name)
 
 
-@pytest.mark.services
+@pytest.mark.services("milvus")
 def test_milvus_roundtrip(config):
     # 建临时 collection → 插入 → 检索 → 删除，确认向量库可读写
     from pymilvus import MilvusClient
@@ -42,10 +42,10 @@ def test_milvus_roundtrip(config):
 def test_missing_secret_gives_hint(monkeypatch):
     monkeypatch.delenv("MEDRAG_TEST_MISSING", raising=False)
     with pytest.raises(RuntimeError, match="deploy/start.sh"):
-        PostgresConfig(password_env="MEDRAG_TEST_MISSING").dsn()
+        PostgresConfig(host="127.0.0.1", password_env="MEDRAG_TEST_MISSING").dsn()
 
 
 def test_special_chars_in_password_are_escaped(monkeypatch):
     monkeypatch.setenv("MEDRAG_TEST_PW", "p@ss:w/rd")
-    url = RedisConfig(password_env="MEDRAG_TEST_PW").url()
+    url = RedisConfig(host="127.0.0.1", password_env="MEDRAG_TEST_PW").url()
     assert url == "redis://:p%40ss%3Aw%2Frd@127.0.0.1:6379/0"

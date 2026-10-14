@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datasets import load_dataset
-from medrag.config import ConfigLoader
+from _common import config_loader
 from medrag.ingest import IngestionPipeline
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 
@@ -12,7 +12,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 async def main():
     """主函数"""
     # 1. 加载配置
-    config_manager = ConfigLoader()
+    config_manager = config_loader()
     # config_manager.change({"milvus.auto_id": True})  # 自动管理id
     cfg = config_manager.config
     data = load_dataset("json", data_files="data/qa_50000.jsonl", split="train")

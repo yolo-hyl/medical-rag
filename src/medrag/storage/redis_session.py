@@ -10,15 +10,15 @@ key 规划（统一前缀 medrag:，除锁以外都带 TTL）：
     medrag:agent:{sid}:state    String(JSON)  Agent 的跨轮状态
     medrag:lock:{sid}           —             会话锁
 
+没有配置 redis.host 时降级为 fakeredis（进程内存，见 storage/backends.py）。
 本模块只做存储，不依赖 LangChain；把 List 包装成 LangChain 对话历史的适配器在 apps/chat_history.py。
 """
 import json
 import logging
 from typing import Any, List
 
-import redis.asyncio as aioredis
-
 from ..config.models import RedisConfig
+from .backends import create_redis
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ class RedisSessionStore:
     """会话存储：任意 JSON 会话数据、JSON 列表、会话锁"""
 
     def __init__(self, redis_config: RedisConfig):
-        # redis.asyncio 的连接池是懒创建的，第一次使用时绑定到当前事件循环
-        self.r = aioredis.Redis.from_url(redis_config.url(), decode_responses=True)
+        # 未配置 redis.host 时是进程内的 fakeredis，接口与 redis.asyncio.Redis 相同（storage/backends.py）
+        self.r = create_redis(redis_config)
         self.ttl = redis_config.session_ttl
         self.lock_timeout = redis_config.lock_timeout
         self.lock_wait = redis_config.lock_wait

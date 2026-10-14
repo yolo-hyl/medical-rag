@@ -33,7 +33,7 @@
 │ ingest/       │ retrieval/    │ prompts/     │ eval/         │  能力层
 │ 切块 · 入库流程 │ 稀疏 · 融合 · 重排│ 版本化提示词   │ 指标 · 运行记录 │
 ├───────────────┴───────────────┴──────────────┴───────────────┤
-│ storage/      向量库 · 文档状态 · 会话                          │  基础层
+│ storage/      向量库 · 文档状态 · 会话 · 图（未配地址时降级）   │  基础层
 │ llm/          OpenAI 兼容的 LLM / Embedding 客户端             │
 │ types.py · base.py · config/                                  │
 └──────────────────────────────────────────────────────────────┘
@@ -69,11 +69,12 @@ src/medrag/                          # 包名：D1（待确认）
 │   ├── registry.py                  # PromptRegistry：加载、解析版本、渲染、锁定校验
 │   └── templates/<name>/            # 每个提示词一个目录，每个版本一个文件，见 design/prompt-management.md
 ├── storage/
-│   ├── milvus.py                    # MilvusVectorStorage（由 KnowledgeBase.py + insert.py 改造）
-│   ├── local.py                     # LocalVectorStorage（numpy + JSON，零依赖，用于测试和快速上手）
-│   ├── doc_status_pg.py             # PostgreSQL 文档状态（D4，待确认）
-│   ├── doc_status_json.py           # 本地 JSON 文档状态
-│   └── redis_session.py             # 会话存储（原 session_store.py）
+│   ├── backends.py                  # 未配置服务地址时的降级选择：Milvus Lite / fakeredis / SQLite / FalkorDBLite（D18）
+│   ├── milvus.py                    # MilvusVectorStorage（由 KnowledgeBase.py + insert.py 改造）；Milvus 服务或 Milvus Lite
+│   ├── sql.py                       # SqlDatabase：PostgreSQL 或 SQLite 的最小异步封装
+│   ├── doc_status.py                # 基于 SqlDatabase 的文档状态（D4，M2）
+│   ├── graph.py                     # GraphDatabase：Neo4j 或 FalkorDBLite，执行 Cypher（第二阶段的图谱存储基于它）
+│   └── redis_session.py             # 会话存储（原 session_store.py）；Redis 或 fakeredis
 ├── retrieval/
 │   ├── sparse/                      # BaseSparseEncoder 及其实现：pkuseg 词表 BM25 / Milvus 原生 BM25（D3）
 │   ├── fusion.py                    # RRF / 加权融合
@@ -106,7 +107,8 @@ src/medrag/                          # 包名：D1（待确认）
 | `types.py` 中的 Document / Chunk / ScoredChunk | 只有过渡类型 `LegacyDocument`（字段与 LangChain Document 一致：page_content / metadata） | M1 |
 | `base.py`、`medrag.py` | 尚未创建 | M1 |
 | `storage/milvus.py` 中的 MilvusVectorStorage | 仍是 v2 的 `MedicalHybridKnowledgeBase`（单行多向量布局），写入辅助函数在 `storage/milvus_io.py` | M1 |
-| `storage/local.py`、`storage/doc_status_*.py` | 尚未创建 | M1 / M2 |
+| `storage/backends.py`、`sql.py`、`graph.py` | 已创建（D18）：四个服务都支持未配置地址时降级；`sql.py`、`graph.py` 暂时没有调用方 | — |
+| `storage/doc_status.py` | 尚未创建 | M2 |
 | `retrieval/fusion.py`、`rerank.py`、`context.py` | 融合仍在 Milvus 里完成；上下文组装在 `apps/memory.py` 的 `TokenBudget` | M1 / M3 |
 | `datasets/`、`cli.py` | 尚未创建；提示词命令行先以 `python -m medrag.prompts` 提供 | M3 |
 | `apps/` | `rag_base.py`（含 `default_search_config`）、`simple_rag.py`、`dialogue_rag.py`、`memory.py`、`retriever.py`、`chat_history.py`（把 Redis 列表包装成 LangChain 对话历史）、`timing.py`、`agent/` | M3 改为调用 `aquery` |
@@ -225,8 +227,8 @@ rag = MedRAG(
     llm=OpenAICompatLLM.from_config(cfg.llm),
     embedding=OpenAICompatEmbedding.from_config(cfg.embedding),
     vector_storage=MilvusVectorStorage(cfg.storage.milvus, dense_fields=["content", "summary"]),
-    doc_status=JsonDocStatusStorage("runs/medqa_zh/doc_status.json"),
-    sparse=MilvusBM25Encoder(analyzer="chinese"),
+    doc_status=SqlDocStatusStorage(SqlDatabase(cfg.postgres)),   # 未配置 postgres.host 时是 SQLite
+    sparse=MilvusBM25Encoder(analyzer="jieba"),
     prompts=PromptRegistry.from_config(cfg.prompts),
 )
 await rag.initialize()
@@ -322,10 +324,29 @@ embedding:
 - **中英文隔离（D16，已定）**：一个 workspace 只能有一种语言，`lang` 写在 workspace 配置里，建表时据此选择 analyzer（中文 jieba / 英文 standard）。入库时，如果文档的 `lang` 和 workspace 不一致，直接报错，不允许静默混入。`Chunk.lang` 字段保留，供以后做多语言混合检索。
 
 ### 文档状态（D4，待确认）
-生产环境用 PostgreSQL（`deploy/` 里已经部署）；单测和快速上手用本地 JSON。
+基于 `storage/sql.py` 的 `SqlDatabase`：配置了 `postgres.host` 用 PostgreSQL，否则是 SQLite。SQL 只用两边都支持的语法（`CREATE TABLE IF NOT EXISTS`、`INSERT ... ON CONFLICT ... DO UPDATE`），占位符统一写 `?`。
 
 ### 会话（Redis）
-原样沿用 v2 的 `RedisSessionStore`：key 规划、分布式锁和 TTL 都不变。
+原样沿用 v2 的 `RedisSessionStore`：key 规划、分布式锁和 TTL 都不变。未配置 `redis.host` 时是 fakeredis（同一进程内的客户端共享一个 `FakeServer`）。
+
+### 图（Neo4j）
+第二阶段使用。`storage/graph.py` 的 `GraphDatabase` 只做一件事：执行 Cypher，返回纯 Python 的 `list[dict]`（节点、关系只保留属性）。未配置 `neo4j.uri` 时是 FalkorDBLite；FalkorDB 支持的是 openCypher 子集，图谱存储只用两边都支持的语法，并在两个后端上各跑一遍测试。
+
+### 未配置服务地址时的降级（D18）
+
+| 服务 | 判断依据 | 降级实现 | 数据位置 |
+| --- | --- | --- | --- |
+| Milvus | `milvus.uri` 为空 | Milvus Lite（pymilvus 在本进程内拉起） | `milvus.lite_path`，默认 `.medrag/milvus_lite.db` |
+| Redis | `redis.host` 为空 | fakeredis（含 Lua，会话锁可用） | 进程内存，不跨进程、退出即丢失 |
+| PostgreSQL | `postgres.host` 为空 | SQLite（标准库，经 `asyncio.to_thread` 调用） | `postgres.sqlite_path`，默认 `.medrag/medrag.sqlite3` |
+| Neo4j | `neo4j.uri` 为空 | FalkorDBLite（嵌入式 FalkorDB，兼容 Cypher） | `neo4j.falkordb_path`，默认 `.medrag/falkordb.db` |
+
+- 包内默认的 `storage.yaml` 不配地址，所以开箱就是降级模式；连接 `deploy/` 的服务时用 `deploy/storage.yaml` 整段覆盖（`MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml`）。
+- 降级实现只适合单进程的开发、测试和小规模使用；每种第一次降级时打一条 warning，避免生产环境漏配地址后悄悄跑在嵌入式实现上。
+- 本地文件路径相对当前工作目录，`.medrag/` 已加入 `.gitignore`。
+- 实测过的边界：
+  - Milvus Lite：M0 用到的操作（upsert / flush / HNSW / 托管 BM25 / 加权与 RRF 混合检索 / 删除）都可用；需要 pymilvus 2.6 + milvus-lite 3.x（D20）；分词器只有 `standard` 和 `jieba`（不支持 `chinese`）；没有 Windows 版本。
+  - FalkorDBLite：redislite 的异步 `close` 不会把数据写盘，`GraphDatabase.close` 里先显式 `SAVE` 再关停嵌入式服务。
 
 ---
 
@@ -377,6 +398,6 @@ seed: 42
 
 | 类型 | 依赖 | 说明 |
 | --- | --- | --- |
-| 单元测试 | 无 | 使用 `LocalVectorStorage`、`JsonDocStatusStorage`，以及确定性的假 LLM / 假 Embedding（按文本哈希生成向量），不需要网络和 Docker |
-| 集成测试 | Milvus / Redis / PostgreSQL | 标记为 `@pytest.mark.services`，需要先执行 `deploy/start.sh` |
+| 单元测试 | 无 | 存储走降级实现（Milvus Lite / fakeredis / SQLite / FalkorDBLite，数据文件在 pytest 临时目录），模型走本地假 OpenAI 服务（按文本哈希生成向量），不需要网络和 Docker |
+| 集成测试 | Milvus / Redis / PostgreSQL / Neo4j | 标记为 `@pytest.mark.services(需要的服务...)`，需要先执行 `deploy/start.sh`；端到端、会话、SQL、图的用例在降级实现与真实服务上各跑一遍同一组断言 |
 | 回归测试 | 真实 Embedding 服务 | A 层的 198 题 Hit@k，作为每个里程碑的合并门槛 |

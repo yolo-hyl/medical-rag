@@ -7,6 +7,11 @@
     ConfigLoader()                                   # 读取包内 config/ 目录下所有 *.yaml
     ConfigLoader("my_conf/")                         # 读取自己的配置目录
     ConfigLoader(overrides=["exp/models_qwen.yaml"]) # 默认配置 + 整段替换模型配置
+
+环境变量（便于不改代码切换环境，例如让 scripts/ 连接 deploy/ 启动的服务）：
+    MEDRAG_CONFIG_DIR        替换默认配置目录
+    MEDRAG_CONFIG_OVERRIDES  追加的覆盖文件，多个用 os.pathsep 分隔，排在参数 overrides 之后生效
+    MEDRAG_ENV_FILE          替换默认的 deploy/.env
 """
 import logging
 import os
@@ -51,7 +56,8 @@ class ConfigLoader:
         """
         Args:
             config_dir: 配置目录。默认取环境变量 MEDRAG_CONFIG_DIR，再退回包内 config/ 目录
-            overrides: 额外的配置文件，按顺序整段覆盖同名的顶层 key
+            overrides: 额外的配置文件，按顺序整段覆盖同名的顶层 key；
+                       环境变量 MEDRAG_CONFIG_OVERRIDES 中的文件追加在后面
         """
         load_deploy_env()
 
@@ -75,10 +81,9 @@ class ConfigLoader:
                 self._sources[key] = path
 
         # 2) overrides：整段替换同名顶层 key
-        for override in overrides:
-            path = Path(override)
-            if not path.exists():
-                raise FileNotFoundError(f"覆盖配置文件不存在: {path}")
+        env_overrides = [s for s in os.environ.get("MEDRAG_CONFIG_OVERRIDES", "").split(os.pathsep) if s]
+        for override in [*overrides, *env_overrides]:
+            path = self._resolve_override(override)
             for key, value in self._read_yaml(path).items():
                 self._dict[key] = value
                 self._sources[key] = path
@@ -87,6 +92,16 @@ class ConfigLoader:
             raise FileNotFoundError(f"配置目录 {self.config_dir} 下没有可用的 *.yaml")
 
         self._app_config = AppConfig(**self._dict)  # Pydantic 校验
+
+    @staticmethod
+    def _resolve_override(override: str) -> Path:
+        """相对路径先按当前目录找，找不到再按仓库根目录找（scripts/ 可能从其他目录启动）"""
+        path = Path(override)
+        if not path.exists() and not path.is_absolute() and (REPO_ROOT / path).exists():
+            path = REPO_ROOT / path
+        if not path.exists():
+            raise FileNotFoundError(f"覆盖配置文件不存在: {override}")
+        return path
 
     @staticmethod
     def _read_yaml(path: Path) -> dict:

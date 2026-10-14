@@ -36,7 +36,7 @@
 2. 实现 `llm/openai_compat.py`，替换掉 `core/utils.py` 里的 LangChain 客户端；`apps/` 改为通过 `langchain_adapter` 获取 ChatModel。
 3. 实现 `PromptRegistry`，把 `templates.py` 里的提示词原样迁移成 `v1.zh.yaml`（状态为 released），并加一致性测试：新旧渲染结果逐字一致。
 4. 按第 3 节的迁移清单搬迁其余模块，同时修好清单里列出的已知问题。
-5. 更新 `scripts/`、`debug/` 和 `tests/` 的 import。
+5. 更新 `scripts/`、`debug/` 和 `tests/` 的 import。（M0 之后 `debug/` 已删除，试用与联调统一用 `scripts/` 和 `scripts/conf/`。）
 
 **门槛**
 
@@ -48,7 +48,7 @@
 ### M1 统一 Schema 与存储抽象
 
 1. 实现 `types.py` 和 `base.py`；Milvus 的 collection 由 `Chunk` 生成（见架构文档 9 节）。
-2. 实现 `LocalVectorStorage`，以及确定性的假 LLM / 假 Embedding，单测不再依赖外部服务。
+2. `MilvusVectorStorage` 同时覆盖 Milvus 服务与 Milvus Lite（未配置 `milvus.uri` 时降级，D18），不再单独实现 `LocalVectorStorage`；假 LLM / 假 Embedding 在 M0 已有（`medrag.testing.fake_openai`）。
 3. 实现 `BaseSparseEncoder` 的两种实现（D3）。
 4. 实现 `QAPairChunker`：每个 QA 是一个 Document，`doc_id = question_hash`；超长答案切块时，每一块都带上问题，并保证不超过 VARCHAR 的字节上限。
 5. 实现 `MedRAG.ainsert / aretrieve`。
@@ -57,11 +57,11 @@
 
 - A 层 Hit@k 不低于 M0；
 - 同一份数据重复入库，新增行数为 0；
-- 单测在没有 Docker 的环境下全部通过。
+- 单测在没有 Docker 的环境下全部通过（存储走降级实现）；带 `services` 标记的用例在真实服务上也通过。
 
 ### M2 增量入库
 
-1. 实现 `DocStatusStorage`（JSON 版和 PostgreSQL 版，D4）。
+1. 基于 `storage/sql.py` 的 `SqlDatabase` 实现 `DocStatusStorage`：配置了 `postgres.host` 用 PostgreSQL，否则是 SQLite（D4、D18）。
 2. 实现增量入库的完整流程：按 `content_hash` 决定跳过、更新还是新增；支持断点续传和失败重试。
 3. 实现 `MedRAG.adelete`。
 4. 记录稀疏检索在增量入库后统计量的变化（D3 的 A/B 实验在这里做）。

@@ -16,6 +16,8 @@
 - **开发分支**：`v2.0.0-rebuild`。`v2.0.0` 是重构前的基线。
 - **当前状态**：M0（搬家）已完成，包名为 `medrag`，代码在 `src/medrag/`；下一步是 M1（统一 Schema 与存储抽象）。M0 门槛里的"重合率"一项待维护者确认（D17）。动手之前先看 `docs/phase1/plan.md`，确认当前处于哪个里程碑。
 - **过渡期的类型**：M1 之前检索结果仍用 `medrag.types.LegacyDocument`（字段与 LangChain Document 相同），知识库仍是 v2 形态的 `MedicalHybridKnowledgeBase`；新代码不要在这些过渡类型上继续扩展功能，扩展放到 M1 的 Document / Chunk / BaseVectorStorage 上。
+- **Python 3.12**（D19，FalkorDBLite 的要求）。
+- **服务可以不配地址**（D18）：Milvus / Redis / PostgreSQL / Neo4j 没有配置地址时，分别降级为 Milvus Lite / fakeredis / SQLite / FalkorDBLite，选择逻辑只在 `src/medrag/storage/backends.py`。包内默认 `storage.yaml` 不配地址；连接 `deploy/` 的服务用 `deploy/storage.yaml` 覆盖。新写的存储代码必须同时支持两种后端，并在两种后端上各测一遍。
 - **文档入口**：`docs/README.md`。架构在 `docs/architecture.md`，方向性决策在 `docs/decisions.md`。
 
 ## 目录速览
@@ -26,9 +28,9 @@
 | `src/medrag/prompts/templates/` | 版本化提示词，`<名称>/<版本>.<语言>.yaml`；`prompts.lock` 登记已发布版本的哈希 |
 | `src/medrag/testing/fake_openai.py` | 本地假 OpenAI 兼容服务，测试和离线联调用 |
 | `scripts/regression/` | 里程碑回归脚本（M0：新旧实现一致性） |
-| `scripts/` | 01–08 号使用示例（构建词表 → 入库 → 检索 → RAG → 评测 → 多轮 → Agent） |
-| `debug/` | 本地联调脚本，使用独立的配置目录 `debug/conf/` |
-| `deploy/` | Milvus / PostgreSQL / Redis / Neo4j 的 docker compose |
+| `scripts/` | 01–08 号使用示例（构建词表 → 入库 → 检索 → RAG → 评测 → 多轮 → Agent），也是唯一的试用 / 联调入口；读取 `scripts/conf/` 下的用户自定义配置（经 `scripts/_common.py` 加载），在仓库根目录运行 |
+| `deploy/` | Milvus / PostgreSQL / Redis / Neo4j 的 docker compose；`deploy/storage.yaml` 是连接它们的存储配置 |
+| `.medrag/` | 降级实现的本地数据（Milvus Lite / SQLite / FalkorDBLite），**不进 git** |
 | `software/` | 前后端示例应用。第一阶段冻结（D11）；backend 用的是 v2 异步化之前的接口，目前跑不起来，M3 之后统一适配 |
 | `data/` | `qa_50000.jsonl`、`eval/new_qa_200.jsonl`（git lfs）；`GraphRAG-Bench/` 已提交 |
 | `data/benchmarks/`、`runs/` | 下载的数据集和评测产出，**不进 git** |
@@ -38,16 +40,19 @@
 
 ```bash
 git lfs pull                                   # 拉取 data/ 下的大文件
-pip install -e ".[all]"                        # 在仓库根目录安装；extras 见 pyproject.toml
+pip install -e ".[all]"                        # 在仓库根目录安装（Python >= 3.12）；extras 见 pyproject.toml
 pip install numpy cython && pip install --no-build-isolation -e ".[zh]"   # 自管理词表的中文 BM25（pkuseg）
-bash deploy/start.sh milvus redis              # 集成测试和脚本需要；Docker Hub 429 时在 deploy/.env 设 REGISTRY=mirror.gcr.io
-pytest tests -q                                # 单测无外部依赖；@pytest.mark.services 的用例在服务不可用时自动跳过
-MEDRAG_REQUIRE_SERVICES=1 pytest tests -q      # 验收时用：集成测试必须执行
+pytest tests -q                                # 不需要任何服务：存储走降级实现；@pytest.mark.services 的用例在服务不可用时自动跳过
+bash deploy/start.sh                           # 启动真实服务；Docker Hub 429 时在 deploy/.env 设 REGISTRY=mirror.gcr.io
+MEDRAG_REQUIRE_SERVICES=1 pytest tests -q      # 验收时用：集成测试必须执行（降级实现与真实服务各跑一遍）
+export MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml   # 让 scripts/ 等连接 deploy/ 启动的服务
 python -m medrag.prompts check                 # 校验已发布提示词未被修改（单测里也会跑）
 python -m medrag.testing.fake_openai --port 8999   # 没有密钥时的假模型服务，base_url 指向 http://127.0.0.1:8999/v1
 ```
 
 - 不要同时安装 `stopwords` 和 `stopwords-zh`：两者写同一个 `stopwords/` 目录，后装的会覆盖；只需要 `stopwords-zh`。
+- `@pytest.mark.services("postgres")` 的参数是需要的服务名（milvus / redis / postgres / neo4j），不写时默认 milvus + redis。
+- 降级实现的已知坑：Milvus Lite 需要 pymilvus 2.6 + milvus-lite 3.x（D20），分词器只有 `standard` / `jieba`；fakeredis 的多个客户端要共用一个 `FakeServer` 才共享数据；redislite（FalkorDBLite）的异步 close 不落盘，`GraphDatabase.close` 里显式 `SAVE`。
 - 在 `src/medrag/` 目录下直接运行 Python 时，包里的 `types.py` 会遮蔽标准库；用 `python -P` 或换个目录执行。
 
 模型服务通过环境变量提供密钥（配置里写 `api_key_env`，默认 `DASHSCOPE_API_KEY`；本地 vLLM / Ollama 可以不写）。中间件的密码由 `deploy/start.sh` 生成到 `deploy/.env`，`ConfigLoader` 会自动加载。配置目录可用环境变量 `MEDRAG_CONFIG_DIR` 替换。

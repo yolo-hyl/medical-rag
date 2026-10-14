@@ -15,8 +15,6 @@
 log
 vocab.pkl.gz
 
-# 联调脚本产生的中间文件
-/debug/**/__pycache__/
 
 # web
 # dependencies
@@ -34,3 +32,6 @@ out/
 # 下载的数据集与评测产出（体积大，按 docs/phase1/data.md 用脚本重新生成）
 /data/benchmarks/
 /runs/
+
+# 未配置服务地址时降级实现的本地数据（Milvus Lite / SQLite / FalkorDBLite）
+.medrag/

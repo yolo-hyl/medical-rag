@@ -1,4 +1,6 @@
-"""端到端冒烟：真实 Milvus + Redis，模型走本地假 OpenAI 服务
+"""端到端冒烟：模型走本地假 OpenAI 服务，存储分两套各跑一遍
+    lite      不配置服务地址：Milvus Lite + fakeredis（不需要任何外部服务）
+    services  deploy/start.sh 启动的 Milvus + Redis
 
 覆盖 M0 迁移后的完整链路：入库 → 混合检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图（工具调用）→ MedicalAgent 多轮。
 假服务的回答是固定的，这里只验证链路通、数据流对，不评价回答质量。
@@ -13,17 +15,17 @@ from medrag.apps.dialogue_rag import MultiDialogueRag
 from medrag.apps.rag_base import default_search_config
 from medrag.apps.simple_rag import SimpleRAG
 from medrag.config import (
-    AgentConfig, DenseConfig, EmbeddingConfig, LLMConfig, MilvusConfig, MultiDialogueRagConfig, SparseConfig,
-    load_deploy_env,
+    AgentConfig, DenseConfig, EmbeddingConfig, LLMConfig, MilvusConfig, MultiDialogueRagConfig, RedisConfig,
+    SparseConfig,
 )
-from medrag.config.models import DataConfig, RedisConfig
+from medrag.config.models import DataConfig
 from medrag.ingest import IngestionPipeline
 from medrag.llm.langchain_adapter import create_chat_model
+from medrag.storage.backends import milvus_connection
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 from medrag.storage.redis_session import RedisSessionStore
 from medrag.testing.fake_openai import DEFAULT_REPLY
 
-pytestmark = pytest.mark.services
 
 QA = [
     ("肚子一阵一阵地痛怎么办", "阵发性腹痛常见于肠痉挛、肠梗阻早期，建议禁食观察、腹部保暖，持续不缓解需就医。"),
@@ -35,21 +37,28 @@ QA = [
 ]
 
 
-@pytest.fixture(scope="module")
-def env(fake_openai):
-    load_deploy_env()
+@pytest.fixture(scope="module", params=["lite", pytest.param("services", marks=pytest.mark.services("milvus", "redis"))])
+def env(request, fake_openai, tmp_path_factory):
     dense = DenseConfig(model="fake-emb", base_url=fake_openai.base_url, dimension=64)
     embedding = EmbeddingConfig(summary_dense=dense, text_dense=dense, text_sparse=SparseConfig(provider="Milvus"))
-    milvus = MilvusConfig(collection_name=f"medrag_pytest_{uuid.uuid4().hex[:8]}", drop_old=True, auto_id=False)
+    collection = f"medrag_pytest_{uuid.uuid4().hex[:8]}"
+    if request.param == "lite":
+        milvus = MilvusConfig(lite_path=str(tmp_path_factory.mktemp("lite") / "milvus_lite.db"),
+                              collection_name=collection, drop_old=True, auto_id=False)
+        redis = RedisConfig()
+    else:
+        services = request.getfixturevalue("service_config")
+        milvus = services.milvus.model_copy(update={"collection_name": collection, "drop_old": True, "auto_id": False})
+        redis = services.redis
     llm = LLMConfig(model="fake-llm", base_url=fake_openai.base_url)
-    return {"embedding": embedding, "milvus": milvus, "llm": llm}
+    return {"embedding": embedding, "milvus": milvus, "redis": redis, "llm": llm}
 
 
 def run(coro_fn, env):
     """每个用例在自己的事件循环里新建知识库与会话存储（连接绑定在事件循环上）"""
     async def main():
         kb = MedicalHybridKnowledgeBase(env["milvus"], env["embedding"])
-        store = RedisSessionStore(RedisConfig())
+        store = RedisSessionStore(env["redis"])
         try:
             return await coro_fn(kb, store)
         finally:
@@ -123,8 +132,21 @@ def test_05_medical_agent_two_rounds(env):
     assert len(second["dialogue_messages"]) == 4
 
 
+def test_06_search_auto_loads_released_collection(env):
+    """Milvus Lite 换进程后集合会回到 released；知识库在第一次检索前自动 load"""
+    from pymilvus import MilvusClient
+    client = MilvusClient(**milvus_connection(env["milvus"]))
+    client.release_collection(env["milvus"].collection_name)
+    client.close()
+
+    async def case(kb, store):
+        return await kb.search(default_search_config(kb).model_copy(update={"query": "高血压常见症状"}))
+
+    assert run(case, env)
+
+
 def test_99_cleanup(env):
     from pymilvus import MilvusClient
-    client = MilvusClient(uri=env["milvus"].uri)
+    client = MilvusClient(**milvus_connection(env["milvus"]))
     client.drop_collection(env["milvus"].collection_name)
     client.close()

@@ -6,8 +6,9 @@ RAG基础评测：生成答案（异步）→ 落盘 → 打分（同步）
 import asyncio
 import logging
 
+from _common import load_config
 from medrag.apps.simple_rag import SimpleRAG
-from medrag.config import ConfigLoader, DenseConfig, LLMConfig
+from medrag.config import DenseConfig, LLMConfig
 from medrag.eval import collect, from_medical_rag, load_samples, save_samples
 from medrag.llm.langchain_adapter import create_chat_model, create_embeddings
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
@@ -21,7 +22,7 @@ SAMPLE_PATH = "data/eval/medical_rag_samples.jsonl"
 
 async def generate_answers():
     """用被测系统生成答案，写入 JSONL"""
-    cfg = ConfigLoader().config
+    cfg = load_config()
     kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     rag = SimpleRAG(cfg.llm, kb)
     # 固定 seed：每个被测库拿到完全相同的样本，分数才可比

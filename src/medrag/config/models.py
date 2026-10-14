@@ -21,29 +21,49 @@ def read_secret(env_name: str) -> str:
 
 # =============================================================================
 # 存储与中间件（由 deploy/start.sh 启动，密码统一从环境变量读取）
+#
+# 服务地址都可以不配：没有配置地址时自动降级为嵌入式实现，不需要启动任何服务（D18）。
+#   Milvus  uri 为空    → Milvus Lite（本地文件 lite_path）
+#   Redis   host 为空   → fakeredis（进程内存）
+#   Postgres host 为空  → SQLite（本地文件 sqlite_path）
+#   Neo4j   uri 为空    → FalkorDBLite（本地文件 falkordb_path，需要 Python >= 3.12）
+# 降级实现只适合单进程的开发、测试和小规模使用，具体的选择逻辑在 storage/backends.py。
+# 本地文件路径是相对当前工作目录的。
 # =============================================================================
 class MilvusConfig(BaseModel):
-    uri: str = "http://localhost:19530"
+    uri: Optional[str] = Field(default=None, description="Milvus 服务地址，如 http://localhost:19530；为空时使用 Milvus Lite")
     token: Optional[str] = None
+    lite_path: str = Field(default=".medrag/milvus_lite.db", description="未配置 uri 时 Milvus Lite 的数据文件")
     collection_name: str = "medical_knowledge"
     drop_old: bool = False
     auto_id: bool = True
 
+    @property
+    def is_lite(self) -> bool:
+        return not self.uri
+
 
 class PostgresConfig(BaseModel):
-    host: str = "127.0.0.1"
+    host: Optional[str] = Field(default=None, description="PostgreSQL 地址；为空时使用 SQLite")
     port: int = 5432
     user: str = "medrag"
     database: str = "medrag"
     password_env: str = "POSTGRES_PASSWORD"
+    sqlite_path: str = Field(default=".medrag/medrag.sqlite3", description="未配置 host 时 SQLite 的数据文件")
+
+    @property
+    def is_sqlite(self) -> bool:
+        return not self.host
 
     def dsn(self) -> str:
+        if self.is_sqlite:
+            raise RuntimeError("未配置 postgres.host，当前使用的是 SQLite，没有 PostgreSQL DSN")
         password = quote(read_secret(self.password_env), safe="")
         return f"postgresql://{self.user}:{password}@{self.host}:{self.port}/{self.database}"
 
 
 class RedisConfig(BaseModel):
-    host: str = "127.0.0.1"
+    host: Optional[str] = Field(default=None, description="Redis 地址；为空时使用进程内的 fakeredis")
     port: int = 6379
     db: int = 0
     password_env: str = "REDIS_PASSWORD"
@@ -53,15 +73,28 @@ class RedisConfig(BaseModel):
     lock_timeout: int = 600
     lock_wait: int = 600
 
+    @property
+    def is_fake(self) -> bool:
+        return not self.host
+
     def url(self) -> str:
+        if self.is_fake:
+            raise RuntimeError("未配置 redis.host，当前使用的是 fakeredis，没有 Redis URL")
         password = quote(read_secret(self.password_env), safe="")
         return f"redis://:{password}@{self.host}:{self.port}/{self.db}"
 
 
 class Neo4jConfig(BaseModel):
-    uri: str = "bolt://127.0.0.1:7687"
+    uri: Optional[str] = Field(default=None, description="Neo4j 地址，如 bolt://127.0.0.1:7687；为空时使用 FalkorDBLite")
     user: str = "neo4j"
     password_env: str = "NEO4J_PASSWORD"
+    database: Optional[str] = None
+    falkordb_path: str = Field(default=".medrag/falkordb.db", description="未配置 uri 时 FalkorDBLite 的数据文件")
+    graph_name: str = Field(default="medrag", description="FalkorDB 的图名（Neo4j 用 database 区分）")
+
+    @property
+    def is_lite(self) -> bool:
+        return not self.uri
 
     def password(self) -> str:
         return read_secret(self.password_env)

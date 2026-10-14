@@ -12,7 +12,7 @@
 | D1 | 包名 | **已定** | 改为 `medrag`，不保留 `MedicalRag` 兼容层（M0 已完成） | M0：全部 import、打包 |
 | D2 | 模型接入方式，以及 LangChain 用在哪一层 | **已定** | 统一用 `openai` SDK 走网络请求，`base_url`、密钥等可配置，其他模型商以后再加；核心层不依赖 LangChain，`apps/` 通过适配器使用 LangChain | M0 |
 | D3 | 稀疏检索 | 采纳建议·待确认 | 两种实现放在同一接口之后，默认用 Milvus 原生 BM25；M2 做 A/B 实验后最终确定 | M1 的 schema、M2 |
-| D4 | 文档状态存在哪里 | 采纳建议·待确认 | 生产用 PostgreSQL，测试用本地 JSON | M2 |
+| D4 | 文档状态存在哪里 | 采纳建议·待确认 | 配置了 `postgres.host` 用 PostgreSQL，否则降级为 SQLite（D18），两者共用 `storage/sql.py` 的 `SqlDatabase`；不再单独做本地 JSON 实现 | M2 |
 | D5 | 算力和预算 | **已定** | 跟随 D2，走 OpenAI 兼容的网络请求；先用子集（c_mini），LightRAG 在 C 层先不跑全量 | M4 |
 | D6 | 数据清洗 | **已定** | 先用子集，子集要清洗；上全量时另想办法 | M3 |
 | D7 | A 层的参考答案 | 采纳建议·待确认 | 检索评测按 `question_hash`；生成评测用原始 `answer`；`new_question` 作为检索查询 | M3 |
@@ -25,7 +25,10 @@
 | D14 | A 层非医疗内容的过滤方式 | 采纳建议·待确认 | 用 LLM 判断，再人工抽检 100 条 | M3 |
 | D15 | 提示词模板语法 | 采纳建议·待确认 | 新版本默认 Jinja2 + StrictUndefined（`jinja2` 已在依赖中）；从 v2 迁移的 v1 版本标注 `format: fstring`，保持与原文逐字一致，也能直接交给 LangChain 的 ChatPromptTemplate | M0 |
 | D16 | 中英文数据如何入库 | **已定** | 暂时隔离：中英文分属不同的 workspace（不同的 collection 和文档状态命名空间），一个 workspace 只有一种语言和一种 analyzer。多语言混合检索留到以后 | M1 |
-| D17 | M0 回归门槛中的"top-10 重合率 ≥ 99%" | **待定** | 实测达不到：同一实现重跑一次重合率只有 91.41%（Milvus 近似检索 + 并发写入顺序不固定），新旧之间是 90.66%，落在噪声范围内。数据层逐行比对与查询编码比对都是 0 差异，Hit@k 差值在 ±1pp 以内。建议把门槛改为：①数据层与查询编码逐项一致；②Hit@1/5/10 差值在 ±1pp 以内；③重合率不低于同一实现重跑的噪声底线减 2pp。详见 [phase1/m0-report.md](phase1/m0-report.md) | M0 验收、后续里程碑 |
+| D17 | M0 回归门槛中的"top-10 重合率 ≥ 99%" | **待定** | 实测达不到：同一实现重跑一次重合率只有 91.41%（Milvus 近似检索 + 并发写入顺序不固定），新旧之间是 90.66%，落在噪声范围内。数据层逐行比对与查询编码比对都是 0 差异，Hit@k 差值在 ±1pp 以内。升级到 Python 3.12 + pymilvus 2.6 后重跑：数据层与查询编码仍是 0 差异，重合率 90.81%，但 Hit@1 差 +1.52pp（3 道题），也超出了 ±1pp。建议把门槛改为：①数据层与查询编码逐项一致（硬门槛）；②重合率与 Hit@1/5/10 的差值不超过同一实现重跑两次的波动范围，再留 2pp 余量。详见 [phase1/m0-report.md](phase1/m0-report.md) | M0 验收、后续里程碑 |
+| D18 | 未配置服务地址时的降级 | **已定** | 四个服务都可以不配地址：Milvus → Milvus Lite，Redis → fakeredis，PostgreSQL → SQLite，Neo4j → FalkorDBLite。选择逻辑集中在 `storage/backends.py`，首次降级打 warning。包内默认 `storage.yaml` 不配地址（开箱即用、不需要 Docker）；连接 `deploy/` 的服务用 `deploy/storage.yaml` 覆盖（`MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml`）。降级实现只适合单进程开发、测试和小规模使用。随之调整：架构中原计划的 `storage/local.py`（numpy + JSON）不再需要，单测直接用 Milvus Lite | M0 补充、M1、M2 |
+| D19 | Python 版本 | **已定** | 升级到 Python 3.12（FalkorDBLite 要求 3.12）。全部依赖（含需要编译的 pkuseg）在 3.12 上实测可装，测试全部通过 | 全部 |
+| D20 | pymilvus 升级到 2.6 | 采纳建议·待确认 | 降级到 Milvus Lite 需要 pymilvus 2.6 + milvus-lite 3.x。实测：pymilvus 2.5 + milvus-lite 3.x 混合检索报 `function_score`；milvus-lite 2.5 只支持 FLAT 索引，且依赖已从新版 setuptools 移除的 `pkg_resources`。pymilvus 2.6 与部署的 Milvus 2.6.0 服务端版本也更一致；升级后 M0 的新旧一致性回归已重跑，见 [phase1/m0-report.md](phase1/m0-report.md) | 存储层 |
 
 ## 第二阶段待办（不进入第一阶段）
 

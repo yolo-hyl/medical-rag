@@ -1,5 +1,5 @@
 """
-Redis 会话存储测试：需要先执行 deploy/start.sh
+Redis 会话存储测试：每个用例在 fakeredis（未配置 redis.host 时的降级实现）与真实 Redis 上各跑一遍
     pytest tests/test_session_store.py -v
 
 没有引入 pytest-asyncio，统一用 asyncio.run 跑协程。
@@ -10,20 +10,25 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from medrag.apps.chat_history import RedisChatHistory
-from medrag.config import ConfigLoader
+from medrag.config import RedisConfig
 from medrag.storage.redis_session import RedisSessionStore
 
-pytestmark = pytest.mark.services
+
+@pytest.fixture(params=["fakeredis", pytest.param("redis", marks=pytest.mark.services("redis"))])
+def redis_config(request):
+    if request.param == "fakeredis":
+        return RedisConfig()
+    return request.getfixturevalue("service_config").redis
 
 SESSION_ID = "pytest-session"
 HISTORY_KEY = f"medrag:chat:{SESSION_ID}:history"
 JSON_KEY = f"medrag:chat:{SESSION_ID}:tokens"
 
 
-def run_with_store(coro_fn):
+def run_with_store(redis_config, coro_fn):
     """新建 store → 清干净 → 执行 → 清理并关闭（连接池绑定在本次的事件循环上）"""
     async def main():
-        store = RedisSessionStore(ConfigLoader().config.redis)
+        store = RedisSessionStore(redis_config)
         try:
             await store.r.delete(HISTORY_KEY, JSON_KEY)
             return await coro_fn(store)
@@ -34,52 +39,52 @@ def run_with_store(coro_fn):
     return asyncio.run(main())
 
 
-def test_history_roundtrip():
+def test_history_roundtrip(redis_config):
     async def case(store):
         hist = RedisChatHistory(store, HISTORY_KEY)
         await hist.aadd_messages([HumanMessage(content="你好"), AIMessage(content="您好")])
         return await hist.aget_messages()
 
-    messages = run_with_store(case)
+    messages = run_with_store(redis_config, case)
     assert [m.content for m in messages] == ["你好", "您好"]
     assert isinstance(messages[0], HumanMessage) and isinstance(messages[1], AIMessage)
 
 
-def test_history_trim_keeps_tail():
+def test_history_trim_keeps_tail(redis_config):
     async def case(store):
         hist = RedisChatHistory(store, HISTORY_KEY)
         await hist.aadd_messages([HumanMessage(content=f"第{i}条") for i in range(4)])
         await hist.atrim(2)
         return [m.content for m in await hist.aget_messages()]
 
-    assert run_with_store(case) == ["第2条", "第3条"]
+    assert run_with_store(redis_config, case) == ["第2条", "第3条"]
 
 
-def test_keys_have_ttl():
+def test_keys_have_ttl(redis_config):
     async def case(store):
         await RedisChatHistory(store, HISTORY_KEY).aadd_messages([HumanMessage(content="你好")])
         await store.set_json(JSON_KEY, {"msg_len": [10]})
         return await store.r.ttl(HISTORY_KEY), await store.r.ttl(JSON_KEY), store.ttl
 
-    history_ttl, json_ttl, ttl = run_with_store(case)
+    history_ttl, json_ttl, ttl = run_with_store(redis_config, case)
     assert 0 < history_ttl <= ttl
     assert 0 < json_ttl <= ttl
 
 
-def test_json_default_when_missing():
+def test_json_default_when_missing(redis_config):
     async def case(store):
         missing = await store.get_json("medrag:chat:not-exist:tokens")
         default = await store.get_json("medrag:chat:not-exist:summary", "")
         await store.set_json(JSON_KEY, {"msg_len": [1, 2]})
         return missing, default, await store.get_json(JSON_KEY)
 
-    missing, default, saved = run_with_store(case)
+    missing, default, saved = run_with_store(redis_config, case)
     assert missing is None
     assert default == ""
     assert saved == {"msg_len": [1, 2]}
 
 
-def test_lock_serializes_same_session():
+def test_lock_serializes_same_session(redis_config):
     async def case(store):
         order = []
 
@@ -92,7 +97,7 @@ def test_lock_serializes_same_session():
         await asyncio.gather(worker("A"), worker("B"))
         return order
 
-    order = run_with_store(case)
+    order = run_with_store(redis_config, case)
     # 两个协程不会交错：一个完整结束后另一个才进入
     assert order[0].endswith("进入") and order[1].endswith("离开")
     assert order[0][0] == order[1][0]

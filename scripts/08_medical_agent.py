@@ -12,8 +12,8 @@ MedicalAgent 多轮对话演示（跨轮状态存 Redis，需要先执行 deploy
 import asyncio
 import logging
 
+from _common import load_config
 from medrag.apps.agent import MedicalAgent
-from medrag.config import ConfigLoader
 from medrag.llm.langchain_adapter import create_chat_model
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 from medrag.storage.redis_session import RedisSessionStore
@@ -26,7 +26,7 @@ SEP = "=" * 60
 
 
 async def main():
-    cfg = ConfigLoader().config
+    cfg = load_config()
     power_model = create_chat_model(cfg.llm)
     kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     store = RedisSessionStore(cfg.redis)

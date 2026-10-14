@@ -3,7 +3,7 @@
 """
 import asyncio
 import logging
-from medrag.config import ConfigLoader
+from _common import config_loader
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 from medrag.storage.redis_session import RedisSessionStore
 from medrag.apps.dialogue_rag import MultiDialogueRag
@@ -25,7 +25,7 @@ def print_output(result):
 
 async def main():
     # 加载配置
-    config_manager = ConfigLoader()
+    config_manager = config_loader()
 
     # # 支持自定义token估计方法
     # from medrag.apps.memory import register_estimate_function

@@ -8,6 +8,7 @@
 
 - **混合检索**：问题向量 + 正文向量 + BM25 稀疏向量（pkuseg 医疗分词的自管理词表，或 Milvus 托管 BM25），RRF / 加权融合。
 - **单轮 RAG、多轮 RAG、问诊 Agent**：多轮对话的历史、摘要、Agent 跨轮状态存在 Redis 里，组件本身无状态，可以多进程部署；都提供流式接口。
+- **不装服务也能跑**：Milvus、Redis、PostgreSQL、Neo4j 的地址都可以不配，自动降级为 Milvus Lite、fakeredis、SQLite、FalkorDBLite，`pip install` 之后不需要 Docker 就能跑通全部链路。
 - **统一走 OpenAI 兼容协议**：DashScope、vLLM、Ollama（`/v1` 端点）、OpenAI 都按 `base_url` + 密钥环境变量接入。
 - **版本化提示词**：提示词是带版本的 YAML 文件，已发布版本锁定不可改，版本由配置选择，每次调用可追溯到具体版本。
 - **可复现评测**：统一的答题函数与样本格式，答案落盘后可重复打分、横向对比。
@@ -20,17 +21,16 @@ medical-rag/
 │   ├── config/                 # 配置模型与多 YAML 加载器（storage / models / data / prompts / dialogue / agent）
 │   ├── llm/                    # OpenAI 兼容的 LLM / Embedding 客户端；langchain_adapter 只给应用层用
 │   ├── prompts/                # PromptRegistry + templates/<名称>/<版本>.<语言>.yaml + prompts.lock
-│   ├── storage/                # Milvus 知识库、Redis 会话存储
+│   ├── storage/                # Milvus 知识库、Redis 会话、SQL、图；未配置地址时的降级在 backends.py
 │   ├── retrieval/sparse/       # 自管理词表的 BM25（pkuseg 医疗分词）
 │   ├── ingest/                 # 入库流水线
 │   ├── apps/                   # 应用层：SimpleRAG、多轮 RAG、记忆管理、MedicalAgent / SearchGraph
 │   ├── eval/                   # 统一评测流程；scorers/ 下是 ragas 打分
 │   ├── tools/                  # 数据标注等非核心工具
 │   └── testing/                # 本地假 OpenAI 服务（测试、离线联调用）
-├── scripts/                    # 01–08 使用示例；regression/ 下是里程碑回归脚本
-├── tests/                      # 单测（无外部依赖）+ 集成测试（@pytest.mark.services）
-├── debug/                      # 本地联调脚本（独立配置目录 debug/conf/）
-├── deploy/                     # Milvus / PostgreSQL / Redis / Neo4j 的 docker compose
+├── scripts/                    # 01–08 使用示例（配置在 scripts/conf/，可随意修改）；regression/ 下是里程碑回归脚本
+├── tests/                      # 单测（存储走降级实现，无外部依赖）+ 集成测试（@pytest.mark.services）
+├── deploy/                     # Milvus / PostgreSQL / Redis / Neo4j 的 docker compose；storage.yaml 是连接它们的配置
 ├── data/                       # 示例数据（git lfs）与 GraphRAG-Bench
 ├── docs/                       # 架构、规划、决策、设计文档
 └── software/                   # 基于本包的前后端示例应用（第一阶段冻结，见 D11）
@@ -44,22 +44,34 @@ medical-rag/
 git clone https://github.com/yolo-hyl/medical-rag && cd medical-rag
 git lfs pull                                    # 拉取 data/ 下的示例数据
 
-conda create -n rag python=3.10 -y && conda activate rag
-pip install -e ".[all]"                         # 核心 + Milvus / Redis / PostgreSQL / Agent / 评测 / 测试
+conda create -n rag python=3.12 -y && conda activate rag   # 要求 Python >= 3.12（FalkorDBLite 的要求）
+pip install -e ".[all]"                         # 核心 + Milvus / Redis / PostgreSQL / 图 / Agent / 评测 / 测试（含各自的降级实现）
 # 自管理词表的中文 BM25 需要 pkuseg（要先装 numpy、cython，并关闭构建隔离）
 pip install numpy cython && pip install --no-build-isolation -e ".[zh]"
 # 需要腾讯云联网搜索时
 pip install -e ".[websearch]"
 ```
 
-依赖按用途拆成了 extras：`milvus`、`redis`、`pg`、`zh`、`agent`、`websearch`、`eval`、`dev`。
+依赖按用途拆成了 extras：`milvus`、`redis`、`pg`、`graph`、`zh`、`agent`、`websearch`、`eval`、`dev`。
+`milvus` 带 milvus-lite，`redis` 带 fakeredis，`graph` 带 neo4j 驱动和 FalkorDBLite；SQLite 用标准库。
 核心包本身只依赖 `openai`、`pydantic`、`pyyaml`、`jinja2` 等少数几个库。
 
 > 不要同时安装 `stopwords` 和 `stopwords-zh`：两个包写的是同一个 `stopwords/` 目录，后装的会覆盖先装的。本项目只需要 `stopwords-zh`。
 
-### 2. 启动基础服务
+### 2. 基础服务（可选）
 
-所有基础服务都通过 `deploy/` 下的 docker compose 管理。脚本会拉取镜像、启动容器，并等待健康检查通过；以 0 退出即表示服务可用。
+**不启动任何服务也能用**：包内默认的 `storage.yaml` 没有配置服务地址，四个服务都会降级为嵌入式实现，数据放在当前目录的 `.medrag/` 下：
+
+| 服务 | 没有配置地址时 | 适用范围 |
+|------|----------------|----------|
+| Milvus（`milvus.uri`） | Milvus Lite（`.medrag/milvus_lite.db`） | 单进程；不支持 Windows |
+| Redis（`redis.host`） | fakeredis（进程内存） | 单进程，进程退出即丢失 |
+| PostgreSQL（`postgres.host`） | SQLite（`.medrag/medrag.sqlite3`） | 单进程 |
+| Neo4j（`neo4j.uri`） | FalkorDBLite（`.medrag/falkordb.db`） | 单进程 |
+
+降级实现适合开发、测试和小规模使用，首次降级时会打一条 warning。多进程部署或数据量较大时，用 `deploy/` 启动真实服务。
+
+所有真实服务都通过 `deploy/` 下的 docker compose 管理。脚本会拉取镜像、启动容器，并等待健康检查通过；以 0 退出即表示服务可用。
 
 ```bash
 bash deploy/start.sh                  # 拉取镜像、启动全部服务并等待就绪
@@ -75,6 +87,7 @@ bash deploy/stop.sh --purge           # 删除容器和全部数据（需确认�
 | PostgreSQL 16 | 文档入库状态（M2 起使用） | `127.0.0.1:5432` |
 | Neo4j 5.26 Community | 知识图谱（第二阶段起使用） | `bolt://127.0.0.1:7687` |
 
+- 启动后让代码连接这些服务：用 `deploy/storage.yaml` 覆盖存储配置，例如 `export MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml`，或在代码里 `ConfigLoader(overrides=["deploy/storage.yaml"])`。
 - 首次运行会由 `deploy/.env.example` 生成 `deploy/.env`，并为各服务生成随机密码；`ConfigLoader` 会自动读取，无需手动导出。
 - Docker Hub 拉取受限（429）时，在 `deploy/.env` 中设置 `REGISTRY=mirror.gcr.io`（或 `docker.m.daocloud.io`）后重试。
 - 端口默认只绑定 `127.0.0.1`，需要远程访问时在 `.env` 中设置 `BIND_ADDR=0.0.0.0`。
@@ -98,6 +111,7 @@ from medrag.config import ConfigLoader
 ConfigLoader()                                    # 默认读取包内 config/（或环境变量 MEDRAG_CONFIG_DIR 指定的目录）
 ConfigLoader("my_conf/")                          # 读取自己的配置目录
 ConfigLoader(overrides=["exp/models_local.yaml"]) # 默认配置 + 整段替换某几段
+# 环境变量 MEDRAG_CONFIG_OVERRIDES 追加覆盖文件（多个用 : 分隔），例如 export MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml
 ```
 
 模型统一按 OpenAI 兼容协议配置，密钥只写环境变量名，不写明文：
@@ -127,6 +141,8 @@ embedding:
 本地 Ollama 的写法：`base_url: http://localhost:11434/v1`，不写 `api_key_env`。
 
 ### 4. 跑示例
+
+示例脚本读取 `scripts/conf/` 下自己的一套配置（结构与包内 `src/medrag/config/` 相同），想换模型、换服务地址就改这里，详见 [scripts/README.md](scripts/README.md)。在仓库根目录运行：
 
 ```bash
 python scripts/01_build_vocab.py           # 构建自管理 BM25 词表（text_sparse.provider=self 时需要）
@@ -218,13 +234,14 @@ python -m medrag.prompts lock                    # 新版本发布后登记哈�
 ## 测试
 
 ```bash
-pytest tests -q                                  # 单测不需要任何外部服务；集成测试在服务不可用时自动跳过
-MEDRAG_REQUIRE_SERVICES=1 pytest tests -q        # 要求集成测试必须执行（里程碑验收时用）
+pytest tests -q                                  # 不需要任何外部服务；集成测试在服务不可用时自动跳过
+bash deploy/start.sh && MEDRAG_REQUIRE_SERVICES=1 pytest tests -q   # 要求集成测试必须执行（里程碑验收时用）
 ```
 
-- 单测里的模型请求都走 `medrag.testing.fake_openai`，不需要密钥和网络。
+- 单测里的模型请求都走 `medrag.testing.fake_openai`，不需要密钥和网络；存储走降级实现，数据文件放在 pytest 的临时目录。
+- 端到端、会话存储、SQL、图的用例在降级实现和真实服务上各跑一遍同一组断言（`tests/test_backends.py`、`test_session_store.py`、`test_apps_e2e.py`）。
 - `tests/test_layering.py` 检查核心层没有 import LangChain（只允许 `apps/`、`llm/langchain_adapter.py`、`eval/scorers/`）。
-- `tests/test_apps_e2e.py` 在真实的 Milvus + Redis 上跑通入库 → 检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图 → Agent 多轮。
+- `tests/test_apps_e2e.py` 跑通入库 → 检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图 → Agent 多轮。
 
 里程碑回归（M0 新旧实现一致性）的用法见 `scripts/regression/m0_parity.py` 文件头，结果记录在 [docs/phase1/m0-report.md](docs/phase1/m0-report.md)。
 

@@ -1,0 +1,37 @@
+# 示例脚本的模型配置（scripts/ 专用，改这里不影响包内默认配置）
+# 统一走 OpenAI 兼容协议（D2）：DashScope、vLLM、Ollama（/v1 端点）都按 base_url + api_key_env 接入
+#
+# 换成本地服务时，按下面的写法改 base_url / model，并去掉 api_key_env：
+#   Ollama：base_url: http://localhost:11434/v1
+#   vLLM  ：base_url: http://<主机>:<端口>/v1；模型不支持 Matryoshka 时给 embedding 加 send_dimensions: false
+# 没有任何模型服务时，可以先起本地假服务把链路跑通（回答是固定的）：
+#   python -m medrag.testing.fake_openai --port 8999   然后 base_url: http://127.0.0.1:8999/v1
+embedding:
+  summary_dense:
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    dimension: 1024
+    max_batch: 10        # DashScope 单次请求最多 10 条
+  text_dense:
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    dimension: 1024
+    max_batch: 10
+  text_sparse:
+    provider: self
+    vocab_path_or_name: vocab.pkl.gz
+    algorithm: BM25
+    domain_model: medicine
+    k1: 1.5
+    b: 0.75
+    build:
+      workers: 8
+      chunksize: 64
+
+llm:
+  model: qwen3.5-plus
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: DASHSCOPE_API_KEY
+  temperature: 0.1

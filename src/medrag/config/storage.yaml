@@ -1,29 +1,32 @@
-# 存储与中间件连接配置：换部署环境时改这里
-# postgres / redis / neo4j 由 deploy/start.sh 启动，密码从环境变量读取（默认自动加载 deploy/.env）
+# 存储与中间件配置
+#
+# 默认不配置任何服务地址：四个服务都会降级为嵌入式实现，不需要启动 Docker 就能跑通（D18）。
+#   milvus.uri 为空    → Milvus Lite（lite_path）
+#   redis.host 为空    → fakeredis（进程内存，进程退出即丢失）
+#   postgres.host 为空 → SQLite（sqlite_path）
+#   neo4j.uri 为空     → FalkorDBLite（falkordb_path）
+# 降级实现只适合单进程的开发、测试和小规模使用。本地文件路径相对当前工作目录。
+#
+# 使用 deploy/start.sh 启动的服务时，用 deploy/storage.yaml 整段覆盖本文件，例如：
+#   export MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml
 milvus:
-  uri: http://localhost:19530
-  token: null
+  uri: null
+  lite_path: .medrag/milvus_lite.db
   collection_name: medical_knowledge
   drop_old: true
   auto_id: false
 
 postgres:
-  host: 127.0.0.1
-  port: 5432
-  user: medrag
-  database: medrag
-  password_env: POSTGRES_PASSWORD
+  host: null
+  sqlite_path: .medrag/medrag.sqlite3
 
 redis:
-  host: 127.0.0.1
-  port: 6379
-  db: 0
-  password_env: REDIS_PASSWORD
+  host: null
   session_ttl: 604800   # 会话数据保留 7 天
   lock_timeout: 600     # 会话锁上限，要大于一轮对话的最长耗时
   lock_wait: 600        # 同一会话的请求排队等待上限
 
 neo4j:
-  uri: bolt://127.0.0.1:7687
-  user: neo4j
-  password_env: NEO4J_PASSWORD
+  uri: null
+  falkordb_path: .medrag/falkordb.db
+  graph_name: medrag

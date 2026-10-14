@@ -3,7 +3,7 @@
 """
 import asyncio
 import logging
-from medrag.config import ConfigLoader
+from _common import load_config
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 from medrag.apps.simple_rag import SimpleRAG
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 async def main():
     # 加载配置
-    cfg = ConfigLoader().config
+    cfg = load_config()
     # 知识库由调用方创建后注入，多个组件可以共用同一个实例
     kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     rag = SimpleRAG(cfg.llm, kb)

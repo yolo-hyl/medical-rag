@@ -1,9 +1,9 @@
 import asyncio
 import logging
 
+from _common import config_loader
 from medrag.apps.agent import SearchGraph
 from medrag.apps.agent.tools.tencent_search import tencent_cloud_search
-from medrag.config import ConfigLoader
 from medrag.llm.langchain_adapter import create_chat_model
 from medrag.storage.milvus import MedicalHybridKnowledgeBase
 
@@ -13,7 +13,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def main():
-    config_manager = ConfigLoader()
+    config_manager = config_loader()
     # config_manager.change({
     #     "llm.model":"qwen3:32b",
     #     "agent.network_search_cnt": 5

@@ -22,6 +22,7 @@ from pymilvus import (
 from ..config.models import EmbeddingConfig, MilvusConfig, SearchRequest, SingleSearchRequest
 from ..llm.openai_compat import OpenAICompatEmbedding
 from ..types import LegacyDocument
+from .backends import milvus_connection
 from .milvus_io import insert_rows
 
 logger = logging.getLogger(__name__)
@@ -51,8 +52,11 @@ class MedicalHybridKnowledgeBase:
         self.text_embedding = self._create_text_embedding()
 
         # 向量存储实例
-        self.client = MilvusClient(uri=self.milvus_config.uri, token=self.milvus_config.token)
+        # 未配置 milvus.uri 时连接参数指向 Milvus Lite 的本地文件（storage/backends.py）
+        self._conn = milvus_connection(self.milvus_config)
+        self.client = MilvusClient(**self._conn)
         self._aclient: AsyncMilvusClient | None = None
+        self._loaded = False   # 本实例是否已确认集合处于 load 状态
         self.EMBEDDERS = {
             "summary_dense": self.summary_embedding,
             "text_dense": self.text_embedding
@@ -91,10 +95,7 @@ class MedicalHybridKnowledgeBase:
     def aclient(self) -> AsyncMilvusClient:
         """懒加载：底层是 grpc.aio，必须在事件循环内创建，首次访问一定发生在协程里"""
         if self._aclient is None:
-            self._aclient = AsyncMilvusClient(
-                uri=self.milvus_config.uri,
-                token=self.milvus_config.token or "",
-            )
+            self._aclient = AsyncMilvusClient(**self._conn)
         return self._aclient
 
     def _create_summary_embedding(self) -> OpenAICompatEmbedding:
@@ -368,7 +369,26 @@ class MedicalHybridKnowledgeBase:
             output_fields=search.output_fields
         )
 
+    def _ensure_loaded_sync(self, collection_name: str) -> None:
+        state = self.client.get_load_state(collection_name).get("state")
+        if str(state).endswith("Loaded") and "NotLoad" not in str(state):
+            return
+        self.client.load_collection(collection_name)
+
+    async def ensure_loaded(self, collection_name: str | None = None) -> None:
+        """检索前确认集合已 load。
+
+        v2 只在入库建索引后 load 一次，默认集合一直处于 load 状态。Milvus 服务会记住这个状态，
+        但 Milvus Lite 重启（换一个进程）后集合会回到 released，直接检索报 "call load() before search"。
+        每个实例只检查一次，之后不再有额外开销。
+        """
+        if self._loaded:
+            return
+        await asyncio.to_thread(self._ensure_loaded_sync, collection_name or self.collection_name)
+        self._loaded = True
+
     async def search(self, req: SearchRequest) -> List[LegacyDocument]:
+        await self.ensure_loaded(req.collection_name)
         if len(req.requests) == 1:
             # 只有一个请求搜索，走普通的search
             outputs = (await self._search(
