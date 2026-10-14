@@ -4,7 +4,6 @@ agent:
   max_attempts: 2  # 每一个子目标查询的最大重试次数，否则进行联网搜索
   network_search_enabled: true  # 是否启用联网搜索
   network_search_cnt: 10  # 开启联网搜索时，返回的数量
-  auto_search_param: true  # 是否开启确定搜索参数
   console_debug: false  # 是否打印图执行过程
   max_ask_num: 3  # 一个问题最多主动追问的次数
   # 多轮记忆（与 multi_dialogue_rag 共用同一套记忆管理）：超出预算时把最旧的对话压成摘要

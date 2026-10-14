@@ -20,11 +20,11 @@ from common import (
     dense_search_config, drop_collection, load_config,
 )
 
-from MedicalRag.agent.MedicalAgent import MedicalAgent
-from MedicalRag.agent.SearchGraph import SearchGraph
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.core.utils import create_llm_client
+from medrag.apps.agent import MedicalAgent
+from medrag.apps.agent import SearchGraph
+from medrag.ingest import IngestionPipeline
+from medrag.storage.redis_session import RedisSessionStore
+from medrag.llm.langchain_adapter import create_chat_model
 
 SID = "debug-agent"
 OTHER_SID = "debug-agent-other"
@@ -63,7 +63,7 @@ async def main():
     kb = build_kb(cfg)
     store = RedisSessionStore(cfg.redis)
     await clear_session(store, SID, OTHER_SID)
-    power_model = create_llm_client(cfg.llm)
+    power_model = create_chat_model(cfg.llm)
 
     try:
         # IngestionPipeline.run 会吞掉异常只返回 False，这里必须检查，

@@ -1,0 +1,33 @@
+version: v1
+parent: null
+status: released
+format: fstring
+author: hy
+created: 2026-10-14
+changelog: 从 v2 的 prompts/templates.py 原样迁移，f-string 语法，与旧版逐字一致
+params: {}
+messages:
+  - role: system
+    content: |-
+      根据文档内容和用户查询，你需要判断模型摘要是否遵循了事实，模型摘要是否脱离了文档内容，可能存在编造或推测。仅输出Y或N
+  - role: user
+    content: |+
+      # 文档内容:
+
+      {format_document_str}
+
+      # 用户查询:
+
+      {query}
+
+      # 模型摘要:
+
+      {summary}
+
+      # 输出示例:
+
+
+      # N
+
+      # 输出:
+

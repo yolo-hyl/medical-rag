@@ -1,0 +1,17 @@
+name: agent_answer
+description: Agent 汇总各子查询的检索分析后统一作答
+variables:
+  summary:
+    required: true
+    description: 前文摘要 / 待评判的回答
+  background_info:
+    required: true
+    description: 用户背景信息
+  all_document_str:
+    required: true
+    description: 拼好的参考资料文本
+  question:
+    required: true
+    description: 用户问题
+aliases:
+  stable: v1

@@ -1,0 +1,15 @@
+version: v1
+parent: null
+status: released
+format: fstring
+author: hy
+created: 2026-10-14
+changelog: 从 v2 的 prompts/templates.py 原样迁移，f-string 语法，与旧版逐字一致
+params: {}
+messages:
+  - role: system
+    content: |-
+      你是一个智能体，请根据输入查询和上下文，使用独立、自洽、便于进行单次且明确的向量检索查询文本，选择合适的检索参数，调用向量数据库进行查询。
+  - role: user
+    content: |-
+      用户查询：{query}

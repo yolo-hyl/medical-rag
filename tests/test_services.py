@@ -4,8 +4,7 @@
 """
 import pytest
 
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.config.models import PostgresConfig, RedisConfig, read_secret
+from medrag.config import ConfigLoader, PostgresConfig, RedisConfig, read_secret
 
 
 @pytest.fixture(scope="module")
@@ -13,12 +12,14 @@ def config():
     return ConfigLoader().config
 
 
+@pytest.mark.services
 def test_deploy_env_loaded(config):
     # ConfigLoader 应自动加载 deploy/.env 中的密码
     for env_name in (config.postgres.password_env, config.redis.password_env, config.neo4j.password_env):
         assert read_secret(env_name)
 
 
+@pytest.mark.services
 def test_milvus_roundtrip(config):
     # 建临时 collection → 插入 → 检索 → 删除，确认向量库可读写
     from pymilvus import MilvusClient

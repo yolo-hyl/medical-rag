@@ -1,0 +1,11 @@
+name: basic_rag
+description: 单轮 RAG 作答：严格基于参考资料回答用户问题
+variables:
+  all_document_str:
+    required: true
+    description: 拼好的参考资料文本
+  input:
+    required: true
+    description: 用户问题
+aliases:
+  stable: v1

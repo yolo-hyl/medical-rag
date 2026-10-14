@@ -12,7 +12,8 @@ import time
 from common import clear_session, load_config
 
 from langchain_core.messages import AIMessage, HumanMessage
-from MedicalRag.core.session_store import RedisSessionStore
+from medrag.storage.redis_session import RedisSessionStore
+from medrag.apps.chat_history import RedisChatHistory
 
 SID = "debug-store"
 HISTORY = f"medrag:chat:{SID}:history"
@@ -25,7 +26,7 @@ async def main():
 
     try:
         # 1) 历史读写
-        hist = store.history(HISTORY)
+        hist = RedisChatHistory(store, HISTORY)
         await hist.aadd_messages([HumanMessage(content="你好"), AIMessage(content="您好")])
         await hist.aadd_messages([HumanMessage(content="第二轮"), AIMessage(content="好的")])
         msgs = await hist.aget_messages()

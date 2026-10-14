@@ -5,15 +5,12 @@ RAG基础评测：生成答案（异步）→ 落盘 → 打分（同步）
 """
 import asyncio
 import logging
-import os
 
-from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_openai import ChatOpenAI
-
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-from MedicalRag.eval import collect, from_medical_rag, load_samples, save_samples, score
-from MedicalRag.rag.SimpleRag import SimpleRAG
+from medrag.apps.simple_rag import SimpleRAG
+from medrag.config import ConfigLoader, DenseConfig, LLMConfig
+from medrag.eval import collect, from_medical_rag, load_samples, save_samples
+from medrag.llm.langchain_adapter import create_chat_model, create_embeddings
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,17 +44,17 @@ def main():
     samples = asyncio.run(generate_answers())
 
     # 2. 打分（同步，在事件循环之外执行，避免和 ragas 自带的事件循环冲突）
-    eval_llm = ChatOpenAI(
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
-        temperature=0.0,
-        extra_body={"enable_thinking": False},
-    )
-    eval_embedding = DashScopeEmbeddings(
-        model="text-embedding-v3",
-        dashscope_api_key=os.getenv("DASHSCOPE_API_KEY"),
-    )
+    #    评测模型要固定，不同轮次的分数才可比；ragas 会在 import 时给 asyncio 打补丁，所以在这里才导入
+    from medrag.eval.scorers.ragas import score
+
+    dashscope = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    eval_llm = create_chat_model(LLMConfig(
+        model="qwen-plus", base_url=dashscope, api_key_env="DASHSCOPE_API_KEY",
+        temperature=0.0, extra_body={"enable_thinking": False},
+    ))
+    eval_embedding = create_embeddings(DenseConfig(
+        model="text-embedding-v3", base_url=dashscope, api_key_env="DASHSCOPE_API_KEY", dimension=1024,
+    ))
     print(score(samples, llm=eval_llm, embeddings=eval_embedding))
 
 

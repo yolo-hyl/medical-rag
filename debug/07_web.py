@@ -22,10 +22,10 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-from MedicalRag.agent.MedicalAgent import MedicalAgent
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.core.utils import create_llm_client
+from medrag.apps.agent import MedicalAgent
+from medrag.ingest import IngestionPipeline
+from medrag.storage.redis_session import RedisSessionStore
+from medrag.llm.langchain_adapter import create_chat_model
 
 PAGE = Path(__file__).parent / "web.html"
 ctx = {}
@@ -56,7 +56,7 @@ async def lifespan(_: FastAPI):
             raise RuntimeError("入库失败，看上面的日志")
         rows = len(RAW_RECORDS)
     store = RedisSessionStore(cfg.redis)
-    agent = MedicalAgent(cfg.llm, agent_cfg, kb, store, power_model=create_llm_client(cfg.llm))
+    agent = MedicalAgent(cfg.llm, agent_cfg, kb, store, power_model=create_chat_model(cfg.llm))
     ctx.update(cfg=cfg, kb=kb, store=store, agent=agent)
     print(f"\n就绪：http://127.0.0.1:8100"
           f"\n  模型 {cfg.llm.model} / 模式 {agent_cfg.mode} / 知识库 {cfg.milvus.collection_name}（{rows} 条）"

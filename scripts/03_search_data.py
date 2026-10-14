@@ -1,8 +1,8 @@
 import asyncio
 import logging
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-from MedicalRag.config.models import SingleSearchRequest, SearchRequest, FusionSpec
+from medrag.config import ConfigLoader
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
+from medrag.config import FusionSpec, SearchRequest, SingleSearchRequest
 
 async def main():
     config_manager = ConfigLoader()

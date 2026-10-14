@@ -1,0 +1,8 @@
+name: call_db
+description: Agent 调用本地知识库检索工具
+variables:
+  query:
+    required: true
+    description: 检索查询
+aliases:
+  stable: v1

@@ -1,12 +1,11 @@
 import asyncio
 import logging
 
-from langchain_community.chat_models.tongyi import ChatTongyi
-
-from MedicalRag.agent.SearchGraph import SearchGraph
-from MedicalRag.agent.tools import tencent_cloud_search
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
+from medrag.apps.agent import SearchGraph
+from medrag.apps.agent.tools.tencent_search import tencent_cloud_search
+from medrag.config import ConfigLoader
+from medrag.llm.langchain_adapter import create_chat_model
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +19,8 @@ async def main():
     #     "agent.network_search_cnt": 5
     # })
     cfg = config_manager.config
-    power_model = ChatTongyi(model="qwen-plus", temperature=0.1)
+    # 负责工具调用的模型：同一个服务商下换一个模型即可
+    power_model = create_chat_model(cfg.llm.model_copy(update={"model": "qwen-plus"}))
     kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     graph = SearchGraph(cfg.llm, cfg.agent, kb, power_model=power_model, websearch_func=tencent_cloud_search)
     try:

@@ -1,529 +1,185 @@
-# Medical RAG - 医疗智能问答系统
+# medrag：专攻医疗领域的通用 RAG 库
 
-基于 LangChain 0.3.27 + Milvus 2.6.x + LangSmith + langgraph 0.6.6 的专业医疗领域RAG(检索增强生成)系统，支持多向量混合检索和智能问答。
-使用约定数据格式，可无缝迁移到其他领域，例如：法学、金融
+> **v2.0.0-rebuild 重构中**：项目正在从 v2（以 QA 数据为中心的医疗问答应用）重构为像 [LightRAG](https://github.com/HKUDS/LightRAG) 那样分层抽象、专攻医疗领域的通用 RAG 库。
+> 当前处于第一阶段的 **M0（搬家）**：包名从 `MedicalRag` 改为 `medrag`，代码按新的分层迁移，检索与问答行为与 v2 保持一致。
+> 目标架构见 [docs/architecture.md](docs/architecture.md)，第一阶段规划见 [docs/phase1/plan.md](docs/phase1/plan.md)，方向性决策见 [docs/decisions.md](docs/decisions.md)。
 
+## 能做什么
 
-## 🌟 项目亮点
+- **混合检索**：问题向量 + 正文向量 + BM25 稀疏向量（pkuseg 医疗分词的自管理词表，或 Milvus 托管 BM25），RRF / 加权融合。
+- **单轮 RAG、多轮 RAG、问诊 Agent**：多轮对话的历史、摘要、Agent 跨轮状态存在 Redis 里，组件本身无状态，可以多进程部署；都提供流式接口。
+- **统一走 OpenAI 兼容协议**：DashScope、vLLM、Ollama（`/v1` 端点）、OpenAI 都按 `base_url` + 密钥环境变量接入。
+- **版本化提示词**：提示词是带版本的 YAML 文件，已发布版本锁定不可改，版本由配置选择，每次调用可追溯到具体版本。
+- **可复现评测**：统一的答题函数与样本格式，答案落盘后可重复打分、横向对比。
 
-- **专业医疗领域优化**：支持领域稀疏向量计算，可直接通过配置完成领域词表管理；也可以使用原生的Milvus进行稀疏向量管理
-- **多向量混合检索**：稠密向量 + 稀疏向量(BM25) 的混合检索策略
-- **灵活的架构设计**：支持一键配置多种LLM提供商（OpenAI、Ollama）和嵌入模型
-- **完整的数据流水线**：从数据预处理、入库到检索问答、以及评估的端到端解决方案
-- **RAG智能体**：自动确定检索内容、检索参数、自动确定是否符合文档事实、自动确定是否开启网络检索，将检索功能全部交由智能体托管，一站式定义查询即可得到你想要的答案！
-- **更丰富的工程细节**：自带token估计、摘要提取、检索文档动态整合等重要特性，在多轮对话性能强悍。
-
-## 🏗️ 项目主要架构
+## 目录
 
 ```
 medical-rag/
-├── src/MedicalRag/
-│   ├── config/              # 配置管理系统
-│   │   ├── models.py        # Pydantic配置模型
-│   │   ├── loader.py        # 配置加载器（读取目录下所有 *.yaml，支持按文件覆盖）
-│   │   ├── storage.yaml     # Milvus / Redis / PostgreSQL / Neo4j 连接
-│   │   ├── models.yaml      # LLM / Embedding
-│   │   ├── data.yaml        # 数据字段映射
-│   │   ├── dialogue.yaml    # 多轮对话策略
-│   │   └── agent.yaml       # Agent 策略
-│   ├── core/                # 核心组件
-│   │   ├── utils.py         # LLM/嵌入模型创建工具
-│   │   ├── KnowledgeBase.py # 多向量知识库
-│   │   ├── HybridRetriever.py # 混合检索器
-│   │   ├── insert.py        # Milvus入库工具类
-│   │   ├── session_store.py # Redis 会话存储（对话历史、摘要、Agent 状态、会话锁）
-│   │   └── IngestionPipeline.py # 数据入库流水线
-│   ├── embed/               # 嵌入相关
-│   │   ├── vocab/           # 领域词表默认保存目录
-│   │   ├── sparse.py        # BM25稀疏向量实现
-│   │   └── bm25.py          # BM25适配器
-│   ├── data/                # 数据处理
-│   │   └── annotation.py    # 自动标注系统
-│   ├── rag/                 # RAG核心
-│   │   ├── RagBase.py       # RAG实现的基类
-│   │   ├── utils.py         # 工具类
-│   │   ├── MultiDialogueRag.py   # 多轮对话实现类
-│   │   └── SimpleRag.py     # 基础RAG实现
-│   ├── eval/                # 统一评测流程（各个库共用，不依赖具体实现）
-│   │   ├── runner.py        # 采样、收集答案、JSONL 读写、ragas 打分
-│   │   └── adapters.py      # 把具体实现包装成统一的答题函数
-│   ├── prompts/             # 提示词管理
-│   │   └── templates.py     # 提示词模板
-│   └── agent/               # 智能体实现
-│   │   ├── tools/           # 工具包
-│   │   │     ├── AgentTools.py   # 工具类
-│   │   │     └── TencentSearch.py   # 腾讯云网络检索器
-│   │   ├── utils.py  # 工具函数
-│   │   ├── AgentBase.py     # 智能体基类
-│   │   ├── MedicalAgent.py  # 多轮问讯智能体
-│   └── └── SearchGraph.py   # 单轮对话智能体
-├── scripts/                 # 使用脚本
-├── tests/                   # 测试
-├── deploy/                  # 基础服务部署：Milvus / PostgreSQL / Redis / Neo4j
-│   ├── docker-compose.yml   # 服务定义
-│   ├── .env.example         # 端口、镜像仓库、密码等配置模板
-│   ├── start.sh / stop.sh   # 启动（拉取镜像+健康检查）/ 停止
-│   ├── milvus/              # Milvus 配置文件
-│   └── volumes/             # 各服务的数据目录（自动创建，不入库）
-└── .vscode/                 # vscode快捷运行配置
+├── src/medrag/                 # 库本体（分层见 docs/architecture.md 第 2、3 节）
+│   ├── config/                 # 配置模型与多 YAML 加载器（storage / models / data / prompts / dialogue / agent）
+│   ├── llm/                    # OpenAI 兼容的 LLM / Embedding 客户端；langchain_adapter 只给应用层用
+│   ├── prompts/                # PromptRegistry + templates/<名称>/<版本>.<语言>.yaml + prompts.lock
+│   ├── storage/                # Milvus 知识库、Redis 会话存储
+│   ├── retrieval/sparse/       # 自管理词表的 BM25（pkuseg 医疗分词）
+│   ├── ingest/                 # 入库流水线
+│   ├── apps/                   # 应用层：SimpleRAG、多轮 RAG、记忆管理、MedicalAgent / SearchGraph
+│   ├── eval/                   # 统一评测流程；scorers/ 下是 ragas 打分
+│   ├── tools/                  # 数据标注等非核心工具
+│   └── testing/                # 本地假 OpenAI 服务（测试、离线联调用）
+├── scripts/                    # 01–08 使用示例；regression/ 下是里程碑回归脚本
+├── tests/                      # 单测（无外部依赖）+ 集成测试（@pytest.mark.services）
+├── debug/                      # 本地联调脚本（独立配置目录 debug/conf/）
+├── deploy/                     # Milvus / PostgreSQL / Redis / Neo4j 的 docker compose
+├── data/                       # 示例数据（git lfs）与 GraphRAG-Bench
+├── docs/                       # 架构、规划、决策、设计文档
+└── software/                   # 基于本包的前后端示例应用（第一阶段冻结，见 D11）
 ```
 
-## 🚀 快速开始
+## 快速开始
 
-### 1. 环境准备
+### 1. 安装
 
-#### 数据集
-[huatuo-qa](https://www.huatuogpt.cn/) 数据集
-也可以使用本项目提供的由 `huatuo-qa` 采样而来的数据集用作示例，详见 `data` 目录
-
-#### 使用conda环境构建
 ```bash
-git clone https://github.com/yolo-hyl/medical-rag
-sudo apt install git-lfs  # 如果没有安装lfs 
-git lfs pull  # 拉取大文件数据集
-cd medical-rag
-conda env create -f environment.yml  # 创建虚拟环境
+git clone https://github.com/yolo-hyl/medical-rag && cd medical-rag
+git lfs pull                                    # 拉取 data/ 下的示例数据
+
+conda create -n rag python=3.10 -y && conda activate rag
+pip install -e ".[all]"                         # 核心 + Milvus / Redis / PostgreSQL / Agent / 评测 / 测试
+# 自管理词表的中文 BM25 需要 pkuseg（要先装 numpy、cython，并关闭构建隔离）
+pip install numpy cython && pip install --no-build-isolation -e ".[zh]"
+# 需要腾讯云联网搜索时
+pip install -e ".[websearch]"
 ```
 
-#### 安装本项目
-```bash
-conda activate rag
-cd src
-python -m pip install --no-build-isolation pkuseg  # 安装依赖包
-pip install -e .
-```
+依赖按用途拆成了 extras：`milvus`、`redis`、`pg`、`zh`、`agent`、`websearch`、`eval`、`dev`。
+核心包本身只依赖 `openai`、`pydantic`、`pyyaml`、`jinja2` 等少数几个库。
 
-#### 启动基础服务
+> 不要同时安装 `stopwords` 和 `stopwords-zh`：两个包写的是同一个 `stopwords/` 目录，后装的会覆盖先装的。本项目只需要 `stopwords-zh`。
 
-**启动 Milvus / PostgreSQL / Redis / Neo4j**
+### 2. 启动基础服务
 
-所有基础服务都通过 `deploy/` 下的 docker compose 管理，**运行项目代码之前先执行 `start.sh`**。
-脚本会拉取镜像、启动容器，并等待全部健康检查通过；以 0 退出即表示服务可用。
+所有基础服务都通过 `deploy/` 下的 docker compose 管理。脚本会拉取镜像、启动容器，并等待健康检查通过；以 0 退出即表示服务可用。
 
 ```bash
 bash deploy/start.sh                  # 拉取镜像、启动全部服务并等待就绪
-bash deploy/start.sh --no-pull        # 镜像已存在时跳过拉取
-pytest tests -v                       # 从 Python 侧确认各服务可读写（可选）
-
+bash deploy/start.sh milvus redis     # 只启动需要的服务
 bash deploy/stop.sh                   # 停止（保留数据）
-bash deploy/stop.sh --down            # 删除容器（保留数据）
 bash deploy/stop.sh --purge           # 删除容器和全部数据（需确认）
 ```
 
 | 服务 | 用途 | 默认地址 |
 |------|------|----------|
 | Milvus 2.6 | 向量库 | `http://127.0.0.1:19530` |
-| PostgreSQL 16 | 用户、会话、任务元数据 | `127.0.0.1:5432` |
-| Redis 7.4 | 任务队列、进度事件、缓存 | `127.0.0.1:6379` |
-| Neo4j 5.26 Community | 知识图谱 | `bolt://127.0.0.1:7687`，浏览器 `http://127.0.0.1:7474` |
+| Redis 7.4 | 多轮对话与 Agent 的会话状态、会话锁 | `127.0.0.1:6379` |
+| PostgreSQL 16 | 文档入库状态（M2 起使用） | `127.0.0.1:5432` |
+| Neo4j 5.26 Community | 知识图谱（第二阶段起使用） | `bolt://127.0.0.1:7687` |
 
-- 首次运行会由 `deploy/.env.example` 生成 `deploy/.env`，并为各服务生成随机密码；Python 侧的 `ConfigLoader` 会自动读取该文件，无需手动导出密码。
-- 所有数据落在 `deploy/volumes/` 下。PostgreSQL / Neo4j 的密码只在首次初始化数据目录时生效，删除 `.env` 前请先 `stop.sh --purge`，或手动把旧密码写回 `.env`。
+- 首次运行会由 `deploy/.env.example` 生成 `deploy/.env`，并为各服务生成随机密码；`ConfigLoader` 会自动读取，无需手动导出。
+- Docker Hub 拉取受限（429）时，在 `deploy/.env` 中设置 `REGISTRY=mirror.gcr.io`（或 `docker.m.daocloud.io`）后重试。
 - 端口默认只绑定 `127.0.0.1`，需要远程访问时在 `.env` 中设置 `BIND_ADDR=0.0.0.0`。
-- Docker Hub 拉取受限（429）或网络不通时，在 `.env` 中设置 `REGISTRY=mirror.gcr.io`（或 `docker.m.daocloud.io`）后重试。
-- 从旧版 `Milvus/standalone_embed.sh` 迁移：先 `docker stop milvus-standalone`，再执行 `mkdir -p deploy/volumes && mv Milvus/volumes/milvus deploy/volumes/milvus` 沿用原有数据。
 
-**启动 Ollama（如果使用本地模型）**
-```bash
-# 安装并启动 Ollama
-ollama serve
+### 3. 配置模型
 
-# 拉取所需模型
-ollama pull bge-m3:latest      # 嵌入模型
-ollama pull qwen3:32b          # 对话模型
-```
-更多配置详见 [Ollama](https://ollama.com/)
-
-**配置环境变量**
-
-也可以不使用ollama，使用api_key去访问web服务，针对没有本地算力的场景，不推荐将api_key直接明文写入项目中，强烈推荐使用环境变量的方式进行读取。
-```bash
-# 编辑环境变量配置文件
-vim ~/.bashrc
-
-# 输入api
-export DASHSCOPE_API_KEY = "xxxxx"
-```
-记住上面的环境变量名，后续配置需要提供。
-
-总而言之，你需要配置三个环境变量：
-1. llm或者embedding服务的环境变量（如需，如果使用ollama则不需要配置）
-2. langchain的api key，用于检测服务（也是可选）
-3. 腾讯云服务的id和key（网络搜索需要用）
-
-### 2. 配置及向量库说明
-
-配置按领域拆成多个文件，放在 `src/MedicalRag/config/` 下，改哪个领域就编辑对应文件：
+配置在 `src/medrag/config/` 下，按领域拆成多个文件，每一段都可以缺省：
 
 | 文件 | 包含的配置 | 什么时候改 |
 | --- | --- | --- |
 | `storage.yaml` | `milvus`、`redis`、`postgres`、`neo4j` | 换部署环境 |
-| `models.yaml` | `llm`、`embedding` | 换模型 / 提供商 |
+| `models.yaml` | `llm`、`embedding` | 换模型 / 服务商 |
 | `data.yaml` | `data` | 换数据集的字段映射 |
+| `prompts.yaml` | `prompts` | 切换提示词版本 |
 | `dialogue.yaml` | `multi_dialogue_rag` | 调整多轮对话策略 |
 | `agent.yaml` | `agent` | 调整 Agent 策略 |
 
-`ConfigLoader` 会读取目录下所有 `*.yaml` 并合并成一份完整配置：
-
 ```python
-ConfigLoader()                                    # 默认读取包内 config/ 目录
+from medrag.config import ConfigLoader
+
+ConfigLoader()                                    # 默认读取包内 config/（或环境变量 MEDRAG_CONFIG_DIR 指定的目录）
 ConfigLoader("my_conf/")                          # 读取自己的配置目录
-ConfigLoader(overrides=["exp/models_qwen.yaml"])  # 默认配置 + 只整段替换模型配置
+ConfigLoader(overrides=["exp/models_local.yaml"]) # 默认配置 + 整段替换某几段
 ```
 
-也可在引入 config 时动态修改部分配置（见下文「动态修改配置」）。各段配置说明：
+模型统一按 OpenAI 兼容协议配置，密钥只写环境变量名，不写明文：
 
 ```yaml
-# Milvus向量数据库配置
-milvus:
-  uri: http://localhost:19530
-  token: null
-  collection_name: medical_knowledge
-  drop_old: true  # 第一次建库时，是否删除同名 collection，调试用，生产环境严禁使用
-  auto_id: false  # 可选是否自动生成id，否则采用hash值作为id自动去重
-
-# 嵌入模型配置（支持多向量字段）
+# models.yaml
+llm:
+  model: qwen3.5-plus
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: DASHSCOPE_API_KEY      # 本地 vLLM / Ollama 不校验密钥，可以不写
+  temperature: 0.1
+  extra_body: {}                      # 透传给接口的额外参数，例如 {enable_thinking: false}
 embedding:
-  summary_dense:      # 问题/摘要 向量（稠密）
-    provider: ollama  # 可选openai接口 或者 ollama库接口
-    model: bge-m3:latest  # 模型名称
-    env_key_name: DASHSCOPE_API_KEY  # 可选的api_key的环境变量名，否则默认使用`openai_ky`
-    base_url: http://localhost:11434  # 请求接口
-    dimension: 1024  # 编码的向量维度
-  text_dense:         # 主文本向量（稠密）
-    provider: ollama  
-    model: bge-m3:latest
-    base_url: http://localhost:11434
+  summary_dense:                      # 问题向量
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
     dimension: 1024
-  text_sparse:        # BM25稀疏向量
-    provider: self    # 或 "Milvus" 使用内置BM25
-    vocab_path_or_name: vocab.pkl.gz
-    algorithm: BM25
-    domain_model: medicine  # 医疗领域分词
-    k1: 1.5
-    b: 0.75
-
-# 大语言模型配置，与嵌入模型配置类似，对于请求模型有相同的字段
-llm:
-  provider: ollama
-  model: qwen3:32b
-  base_url: http://localhost:11434
-  temperature: 0.1
-
-# 数据字段映射
-data:
-  summary_field: question    # 问题字段
-  document_field: answer     # 答案字段
-  default_source: qa
-  default_source_name: huatuo_qa
-
-# 多轮对话配置
-multi_dialogue_rag: 
-  estimate_token_fun: avg  # 默认token估计方式
-  llm_max_token: 1024  # 大模型最长token数量
-  cut_dialogue_scale: 2   # 预估达到最长token时的裁切比例，2表时裁切一半的历史对话生成摘要
-  max_token_threshold: 1.01   # 最长token的缓冲值 > 1 表示宽松策略，<1 表示严格策略
-  smith_debug: false  # 是否使用 Langsmith 进行debug查看
-  console_debug: true  # 是否启用控制台日志查看
-  thinking_in_context: false  # 是否将思考内容加入上下文历史对话
-
-agent:
-  mode: analysis
-  max_attempts: 2  # 每一个子目标查询的最大重试次数，否则进行联网搜索
-  network_search_enabled: True  # 是否启用联网搜索
-  network_search_cnt: 10  # 开启联网搜索时，返回的数量
-  auto_search_param: True  # 是否开启确定搜索参数
-  console_debug: true  # 是否启用控制台日志查看
-
-# Redis 会话存储（多轮对话与 Agent 的跨轮状态），密码从 deploy/.env 读取
-redis:
-  host: 127.0.0.1
-  port: 6379
-  db: 0
-  password_env: REDIS_PASSWORD
-  session_ttl: 604800  # 会话数据保留时长，单位秒
-```
-
-> 多轮对话 RAG 和 Agent 的会话状态存在 Redis 里，运行前需要先执行 `deploy/start.sh`；
-> 单轮 RAG、单轮检索图、入库、检索不依赖 Redis。
-
-### 3. 快速使用
-
-#### 1. 构建BM25词表（自管理模式）
-
-当配置 `embedding.text_sparse.provider: "self"` 时需要先构建词表：
-
-```bash
-conda activate rag
-python scripts/01_build_vocab.py
-```
-
-领域分词依赖 [pkuseg](https://github.com/lancopku/pkuseg-python) 库，更多领域可详见其项目主页。
-
-#### 2. 数据入库
-
-数据配置
-
-```yaml
-data:
-  summary_field: question
-  document_field: answer
-  default_source: qa
-  default_source_name: huatuo_qa
-  default_lt_doc_id: ''
-  default_chunk_id: -1
-```
-
-支持医疗QA数据的批量入库，自动处理多向量字段：
-
-```bash
-conda activate rag
-python scripts/02_ingest_data.py
-```
-
-**数据格式示例：**
-
-```json
-{
-  "question": "高血压的症状有哪些？",
-  "answer": "高血压的主要症状包括头痛、头晕、心悸..."
-}
-```
-source和source_name可不指定，但需要配置默认的数据源和数据源名称。
-
-入库后，Milvus中存储的字段如下：
-
-| 字段名        | 字段类型            | 说明                                                         |
-| ------------- | ------------------- | ------------------------------------------------------------ |
-| pk            | INT64 or VARCHAR    | 主键。当自动生成id时，使用INT64，否则使用varchar             |
-| text          | VARCHAR             | 核心知识文本。qa数据=summary+document；文献数据=document     |
-| summary       | VARCHAR             | 当前知识摘要。qa数据=question；文献数据=采样或者生成的摘要示例文本 |
-| document      | VARCHAR             | 原始文本。qa数据=answer；文献数据=原始文本                   |
-| source        | VARCHAR             | 数据源。暂只支持：qa和literature                             |
-| source_name   | VARCHAR             | 数据源名称。例如：huatuo、neikebook                          |
-| lt_doc_id     | VARCHAR             | 文档id。用于寻找同一个切片的文档                             |
-| chunk_id      | INT64               | 切片id。同一个切片的数据切片id相同，用于反查相关文档         |
-| summary_dense | FLOAT_VECTOR        | 摘要的稠密向量                                               |
-| text_dense    | FLOAT_VECTOR        | 知识的稠密向量                                               |
-| text_sparse   | SPARSE_FLOAT_VECTOR | 知识的稀疏向量，用于关键词匹配                               |
-
-#### 3. 混合检索
-
-测试多向量混合检索效果：
-
-```bash
-python scripts/03_search_data.py  
-```
-
-#### 4. RAG问答系统
-
-基于检索结果生成专业医疗回答：
-
-```bash
-python scripts/04_basic_rag.py
-```
-
-将会生成以下数据的知识库检索回答：**我有点肚子痛，该怎么办？**
-
-#### 5. 采样数据生成评测数据
-
-从插入的示例数据中，采样200条回答，改写Q-A对，以便进行RAG评测：
-
-```bash
-cd data/eval
-python change_data.py
-```
-
-#### 6. 评测RAG
-
-使用改写后的Q-A对，进行RAG的评测，也可以使用自己的数据集，指定对应的列名即可
-
-```bash
-python 05_eval_rag.py
-```
-
-#### 7. 多轮问答RAG
-
-```bash
-python 06_muti_dialogue_rag
-```
-然后输入你的问题即可
-
-同时多轮对话支持自定义token估计，估计越准确，上下文内容越准确，已支持 `avg历史token平均估计` 和 `tiktoken库估计` 。
-
-```python
-# 支持自定义token估计方法
-from MedicalRag.rag.utils import register_estimate_function
-# 1) 注册自己的函数
-@register_estimate_function("self_fun")
-def estimate_tokens(text: str) -> int:
-    """ 示例：简单的线性关系 你需要自己实现根据传入的自然语言来估计可能会被模型编码的token数量"""
-    tokens = len(text) * 0.8  # 
-    return tokens
-# 2) 修改配置文件（已有默认实现：avg、tiktoken）
-config_manager.change({"multi_dialogue_rag.estimate_token_fun": "self_fun"})
-# 3) 组装组件，开始问答
-cfg = config_manager.config
-kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
-store = RedisSessionStore(cfg.redis)
-rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store)
-```
-
-#### 8. 检索智能体
-
-使用这个示例时，需要有一个能力较强的大模型，充当智能体调用工具的角色，所以需要修改这个脚本，传入`ChatModel`
-
-推荐使用 `qwen-plus` 在这个智能体中：检索参数、检索内容、是否符合文档事实、是否需要进行网络检索 全部由智能体自己确定，用户只需要定义想要问讯的问题即可回答。
-
-注意，这里的网络检索使用了腾讯云服务，你同样需要配置腾讯云服务的 `TENCENTCLOUD_SECRET_ID` 和 `TENCENTCLOUD_SECRET_KEY` 在 `~/.bashrc` 的环境变量中。
-
-<img src="img/SearchAgent.png" alt="我的头像" width="233" height="350">
-
-```bash
-python 07_single_dialogue_agent.py
-```
-
-#### 9. 问答智能体
-
-问答智能体依赖单轮RAG问答智能体，检索时使用的是其子图。推荐传入更强大的模型作为调度器。
-
-<img src="img/RagAgent.png" alt="我的头像" width="471" height="500">
-
-```bash
-python 08_medical_agent.py
-```
-
-## ⚙️ 高级配置
-
-### 多LLM提供商支持
-
-**OpenAI配置（支持代理）:**
-
-```yaml
-llm:
-  provider: openai
-  model: gpt-4o-mini
-  api_key: "your-api-key"
-  base_url: "https://api.openai.com/v1"
-  proxy: "http://localhost:10809"  # 可选代理设置
-  temperature: 0.1
-  max_tokens: 2000
-```
-
-**混合配置（不同组件使用不同提供商）:**
-```yaml
-embedding:
-  summary_dense:
-    provider: openai
-    model: text-embedding-3-small
-    api_key: "your-key"
-  text_dense: 
-    provider: ollama
-    model: bge-m3:latest
-    base_url: http://localhost:11434
-
-llm:
-  provider: openai
-  model: gpt-4o-mini
-```
-
-### BM25配置选择
-
-**自管理BM25（推荐用于生产）:**
-```yaml
-embedding:
+    max_batch: 10                     # 单次请求最多几条；DashScope 上限是 10
+    send_dimensions: true             # 不支持 Matryoshka 的模型（如 Octen-Embedding-8B）设为 false
+  text_dense: { ... }                 # 正文向量，字段同上
   text_sparse:
-    provider: self
-    vocab_path_or_name: vocab.pkl.gz
-    domain_model: medicine    # 使用医疗分词模型，完美迁移其他领域
-    k1: 1.5                   # BM25参数调优
-    b: 0.75
-    build:
-      workers: 8              # 并行分词线程数
-      chunksize: 64
+    provider: self                    # self = pkuseg 自管理词表；Milvus = Milvus 托管 BM25
+    domain_model: medicine
 ```
 
-**Milvus内置BM25（简化版）:**
-```yaml
-embedding:
-  text_sparse:
-    provider: Milvus          # Milvus 2.5+支持
-    k1: 1.5
-    b: 0.75
+本地 Ollama 的写法：`base_url: http://localhost:11434/v1`，不写 `api_key_env`。
+
+### 4. 跑示例
+
+```bash
+python scripts/01_build_vocab.py           # 构建自管理 BM25 词表（text_sparse.provider=self 时需要）
+python scripts/02_ingest_data.py           # 入库 qa_50000 的前 100 条
+python scripts/03_search_data.py           # 单路 / 多路混合检索
+python scripts/04_basic_rag.py             # 单轮 RAG
+python scripts/05_eval_rag.py              # 生成答案 → 落盘 → ragas 打分
+python scripts/06_muti_dialogue_rag.py     # 多轮 RAG（交互式，需要 Redis）
+python scripts/07_single_dialogue_agent.py # 单轮检索图（工具调用 + 事实校验 + 联网搜索）
+python scripts/08_medical_agent.py         # 多轮问诊 Agent（交互式，需要 Redis）
 ```
 
-### 混合检索策略调优
+没有 API 密钥时，可以先用本地的假 OpenAI 服务把链路跑通（回答是固定的，只用来验证链路）：
 
-**RRF融合:**
-```python
-fuse = FusionSpec(
-    method="rrf",
-    k=60  # RRF参数，通常60-100效果较好
-)
+```bash
+python -m medrag.testing.fake_openai --port 8999     # 然后把 base_url 指向 http://127.0.0.1:8999/v1
 ```
 
-**加权融合:**
-```python
-fuse = FusionSpec(
-    method="weighted", 
-    weights=[0.6, 0.3, 0.1]  # 对应各向量字段权重
-)
-```
+## 在代码里使用
 
-### 自定义提示词
-
-```python  
-from MedicalRag.prompts.templates import register_prompt_template
-
-# 注册自定义医疗提示词
-register_prompt_template("professional_medical", {
-    "system": "你是一名资深的医学专家，拥有丰富的临床经验...",
-    "user": """
-    基于以下医学资料回答患者问题，要求：
-    1. 专业准确，同时通俗易懂
-    2. 如涉及诊疗，提醒就医
-    3. 不要编造信息
-
-    参考资料: {context}
-    患者问题: {input}
-    
-    专业回答:
-    """
-})
-```
-
-### 组装与异步调用
-
-包内所有对外方法都是 `async`，知识库 `kb` 与会话存储 `store` 由调用方创建后注入，
-一个进程里只需要各一个实例，多个组件共用：
+所有 IO 方法都是 `async`；知识库、会话存储、提示词注册表由调用方创建后注入，一个进程里各一个实例即可：
 
 ```python
 import asyncio
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.core.utils import create_llm_client
-from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
-from MedicalRag.agent.MedicalAgent import MedicalAgent
+
+from medrag.apps.agent import MedicalAgent
+from medrag.apps.dialogue_rag import MultiDialogueRag
+from medrag.config import ConfigLoader
+from medrag.llm.langchain_adapter import create_chat_model
+from medrag.prompts import PromptRegistry
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
+from medrag.storage.redis_session import RedisSessionStore
 
 cfg = ConfigLoader().config
 kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
 store = RedisSessionStore(cfg.redis)
-rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store)
-agent = MedicalAgent(cfg.llm, cfg.agent, kb, store, power_model=create_llm_client(cfg.llm))
+prompts = PromptRegistry.from_config(cfg.prompts)      # 不传时使用内置模板的 stable 版本
+rag = MultiDialogueRag(cfg.llm, cfg.multi_dialogue_rag, kb, store, prompts=prompts)
+agent = MedicalAgent(cfg.llm, cfg.agent, kb, store, power_model=create_chat_model(cfg.llm), prompts=prompts)
+
 
 async def main():
-    # 阻塞式：一个实例服务所有会话，用 session_id 区分
+    # 一个实例服务所有会话，用 session_id 区分
     result = await rag.answer("我有点肚子痛，该怎么办？", return_document=True, session_id="U123")
     print(result["answer"])
 
-    # 流式：原样透传 LangChain astream_events(v2) 事件，由外部转换成 SSE / WebSocket 协议
+    # 流式：原样透传 LangChain astream_events(v2) 事件，由外部转换成 SSE / WebSocket
     async for event in rag.stream("那需要忌口吗？", session_id="U123"):
         if event["event"] == "on_chat_model_stream":
             print(event["data"]["chunk"].content, end="")
 
-    # 多个问题并发
-    await rag.batch_answer(["问题1", "问题2", "问题3"])
+    state = await agent.answer("我这两天肚子痛，还拉肚子", session_id="U456")
+    print(state["final_answer"] or state["ask_messages"].asked_messages[-1][-1].content)
 
     await kb.close()
     await store.close()
@@ -531,70 +187,53 @@ async def main():
 asyncio.run(main())
 ```
 
-HTTP 接口、鉴权、SSE 协议等由外部业务实现，示例见 `software/backend/`。
+不依赖 LangChain 的模型客户端（核心层使用）：
 
-## 📊 Debug For VsCode
+```python
+from medrag.llm import OpenAICompatEmbedding, OpenAICompatLLM
 
-本项目还定义了 .vscode 快捷启动配置，可使用vscode打开一键运行。
+llm = OpenAICompatLLM(cfg.llm)
+result = await llm([{"role": "user", "content": "高血压有哪些症状"}])
+result.text, result.reasoning, result.usage.completion_tokens
 
-## 📊 性能和特色
+emb = OpenAICompatEmbedding(cfg.embedding.text_dense)
+vectors = await emb(["文本1", "文本2"])     # 按 max_batch 分批、按 concurrency 并发，顺序与输入一致
+```
 
-### 核心优势
+## 提示词
 
-| 特性 | 说明 |
-|------|------|
-| **医疗领域优化** | 使用pkuseg医疗分词、医疗停用词库 |
-| **混合检索** | 稠密向量+稀疏向量，召回率更高 |
-| **多向量架构** | 问题向量、文本向量、BM25向量独立优化 |
-| **灵活配置** | 支持多种LLM/嵌入模型提供商 |
-| **生产就绪** | 完整的数据流水线和错误处理 |
+提示词放在 `src/medrag/prompts/templates/<名称>/` 下，每个版本一个文件，设计见 [docs/design/prompt-management.md](docs/design/prompt-management.md)：
 
-### 检索效果对比
+```bash
+python -m medrag.prompts list                    # 列出提示词、版本、状态与别名
+python -m medrag.prompts show basic_rag          # 查看 stable 版本的原文
+python -m medrag.prompts check                   # 校验已发布版本没有被改动
+python -m medrag.prompts lock                    # 新版本发布后登记哈希
+```
 
-| 检索方式 | 召回率 | 精确率 | 适用场景 |
-|----------|--------|--------|----------|
-| 仅稠密向量 | 70.12% | 85.64% | 语义相似问题 |
-| 仅BM25 | 61.08% | 70.90% | 关键词匹配 |
-| **混合检索** | **91.32%** | **92.15%** | **综合最佳** |
+- 迁移自 v2 的 15 个提示词都是 `v1`（`format: fstring`，与 v2 原文逐字一致，有测试保证）。新版本默认使用 Jinja2 语法。
+- 已发布（`status: released`）的版本不能修改：要改就复制成新版本，改完在 dev 集上对比，再把 `stable` 别名指过去。
+- 版本由配置选择：`prompts.versions: {basic_rag: v2}`；自定义模板目录放在 `prompts.dirs`，同名提示词优先使用自定义的。
 
-### 支持的数据规模
+## 测试
 
-- **文档数量**: 支持百万级医疗文档
-- **并发查询**: 支持高并发检索请求
-- **响应时间**: < 500ms（混合检索）
-- **准确率**: 医疗领域问答准确率 > 85%
+```bash
+pytest tests -q                                  # 单测不需要任何外部服务；集成测试在服务不可用时自动跳过
+MEDRAG_REQUIRE_SERVICES=1 pytest tests -q        # 要求集成测试必须执行（里程碑验收时用）
+```
 
-## 🚨 注意事项
+- 单测里的模型请求都走 `medrag.testing.fake_openai`，不需要密钥和网络。
+- `tests/test_layering.py` 检查核心层没有 import LangChain（只允许 `apps/`、`llm/langchain_adapter.py`、`eval/scorers/`）。
+- `tests/test_apps_e2e.py` 在真实的 Milvus + Redis 上跑通入库 → 检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图 → Agent 多轮。
 
-### 免责声明
+里程碑回归（M0 新旧实现一致性）的用法见 `scripts/regression/m0_parity.py` 文件头，结果记录在 [docs/phase1/m0-report.md](docs/phase1/m0-report.md)。
 
-⚠️ **重要提醒**: 本系统仅供学习研究使用，不能替代专业医疗建议。任何医疗决策都应咨询专业医生。
+## 注意事项
 
-### 数据安全
+- ⚠️ 本项目仅供学习研究使用，不能替代专业医疗建议。任何医疗决策都应咨询专业医生。
+- 医疗数据需符合相关法规，建议在私有环境部署。
+- v2 README 中的"检索效果对比"等数字没有可复现的评测记录，已移除；之后的效果数字一律以 `docs/phase1/` 中可复现的评测结果为准。
 
-- 确保医疗数据符合相关法规（HIPAA、GDPR等）
-- 建议在私有环境部署
-- 定期备份向量数据库
+## 许可证
 
-### 性能调优建议
-
-1. **硬件配置**: 推荐16GB内存
-2. **批处理**: 大量数据入库时使用批处理模式  
-3. **索引优化**: 根据数据量调整HNSW参数
-4. **缓存策略**: 高频查询可增加缓存层
-
-## 🤝 贡献指南
-
-欢迎提交Issue和Pull Request！
-
-### 代码规范
-- 遵循PEP 8编码规范
-- 添加类型注解和文档字符串
-- 提交前运行测试用例
-
-## 📝 许可证
-
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
-
-
-**如有问题，欢迎提交Issue或联系项目维护者！**
+MIT，详见 [LICENSE](LICENSE)。

@@ -1,0 +1,21 @@
+version: v1
+parent: null
+status: released
+format: fstring
+author: hy
+created: 2026-10-14
+changelog: 从 v2 的 prompts/templates.py 原样迁移，f-string 语法，与旧版逐字一致
+params: {}
+messages:
+  - role: system
+    content: |-
+      任务：基于对话历史和用户当前提问，严格抽取已经明确提到的事实性信息，生成简短的背景摘要。
+      # 输出要求
+      1) 只保留对话中出现过的具体信息。
+      2) 严禁添加、推测、联想或扩展任何未出现的信息。
+      3) 未提及的信息请不要补充、假设或者推断。
+      4) 输出风格应简洁、客观，避免使用“可能”“需注意”等推测性表达。
+  - role: user
+    content: |-
+      # 用户当前提问
+      {question}

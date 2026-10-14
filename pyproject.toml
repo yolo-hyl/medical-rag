@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medrag"
+version = "2.0.0.dev0"
+description = "专攻医疗领域的通用 RAG 库"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "hy", email = "zjl4376@gmail.com" }]
+keywords = ["RAG", "Medical", "LLM"]
+# 核心依赖只包含模型层、配置与提示词；存储、应用、评测按需通过 extras 安装
+dependencies = [
+    "openai>=1.99",
+    "httpx>=0.27",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "jinja2>=3.1",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+milvus = ["pymilvus>=2.5.14,<2.6"]
+redis = ["redis>=5.0"]
+pg = ["psycopg[binary]>=3.1"]
+# 自管理词表的中文 BM25（pkuseg 需要先装 numpy / cython，并用 --no-build-isolation 安装）
+zh = ["pkuseg>=0.0.25", "stopwords-zh==2023.6.5.13.18.38"]  # 不要同时装 stopwords 包：两者写同一个目录，后装的会覆盖
+agent = [
+    "langchain>=0.3.27,<0.4",
+    "langchain-core>=0.3.74,<0.4",
+    "langchain-openai>=0.3.29,<0.4",
+    "langgraph>=0.6.6,<0.7",
+    "tiktoken>=0.7",
+]
+websearch = ["tencentcloud-sdk-python-wsa>=3.0"]
+eval = ["datasets>=4.0", "pandas>=2.0", "ragas==0.3.2", "langchain-openai>=0.3.29,<0.4"]
+dev = ["pytest>=8.0"]
+all = ["medrag[milvus,redis,pg,agent,eval,dev]"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["medrag*"]
+
+[tool.setuptools.package-data]
+medrag = [
+    "config/*.yaml",
+    "prompts/prompts.lock",
+    "prompts/templates/*/*.yaml",
+    "retrieval/sparse/stopword_lists/*.txt",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "services: 需要 deploy/start.sh 启动的 Milvus / Redis 等基础服务",
+]

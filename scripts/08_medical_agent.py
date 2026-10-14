@@ -12,11 +12,11 @@ MedicalAgent 多轮对话演示（跨轮状态存 Redis，需要先执行 deploy
 import asyncio
 import logging
 
-from MedicalRag.agent.MedicalAgent import MedicalAgent
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.core.utils import create_llm_client
+from medrag.apps.agent import MedicalAgent
+from medrag.config import ConfigLoader
+from medrag.llm.langchain_adapter import create_chat_model
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
+from medrag.storage.redis_session import RedisSessionStore
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -27,7 +27,7 @@ SEP = "=" * 60
 
 async def main():
     cfg = ConfigLoader().config
-    power_model = create_llm_client(cfg.llm)
+    power_model = create_chat_model(cfg.llm)
     kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
     store = RedisSessionStore(cfg.redis)
     # 一个实例服务所有会话，用 session_id 区分

@@ -1,9 +1,9 @@
 import asyncio
 import logging
 from datasets import load_dataset
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
+from medrag.config import ConfigLoader
+from medrag.ingest import IngestionPipeline
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

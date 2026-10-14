@@ -18,7 +18,7 @@ from pathlib import Path
 
 from common import build_kb, load_config
 
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
+from medrag.ingest import IngestionPipeline
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "qa_50000.jsonl"
 DEFAULT_COLLECTION = "medrag_debug"

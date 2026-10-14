@@ -1,0 +1,14 @@
+name: judge_rag
+description: 判断生成的回答是否忠于参考文档（Y / N）
+variables:
+  format_document_str:
+    required: true
+    description: 参考文档文本
+  query:
+    required: true
+    description: 检索查询
+  summary:
+    required: true
+    description: 前文摘要 / 待评判的回答
+aliases:
+  stable: v1

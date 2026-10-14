@@ -1,0 +1,17 @@
+name: follow_ask
+description: 多轮问诊：谨慎判断是否需要补充询问（最多一次）
+variables:
+  format_instructions:
+    required: true
+    description: 结构化输出的格式说明（由解析器生成）
+  summary:
+    required: true
+    description: 前文摘要 / 待评判的回答
+  background_info:
+    required: true
+    description: 用户背景信息
+  question:
+    required: true
+    description: 用户问题
+aliases:
+  stable: v1

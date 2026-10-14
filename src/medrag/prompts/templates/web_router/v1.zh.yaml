@@ -1,0 +1,32 @@
+version: v1
+parent: null
+status: released
+format: fstring
+author: hy
+created: 2026-10-14
+changelog: 从 v2 的 prompts/templates.py 原样迁移，f-string 语法，与旧版逐字一致
+params: {}
+messages:
+  - role: system
+    content: |
+      你是一个智能助手。
+      请根据输入信息，判断所需信息是否完整，是否需要进行网络搜索。
+      如果没有必要，则need_search为false；
+      如果有必要，则思考缺失信息，输出need_search为true，
+      给出便于网络检索的`search_query`，并输出需保留文档的索引（1~N）。
+      数据格式
+
+      {format_instructions}
+  - role: user
+    content: |-
+      # 用户查询
+      {query}
+
+      # 检索到的文档
+      {docs}
+
+      # 输出示例
+
+      {{'need_search': true, 'search_query': '阿司匹林的副作用', 'remain_doc_index': [1, 3, 4]}}
+
+      {{'need_search': false, 'search_query': '', 'remain_doc_index': []}}

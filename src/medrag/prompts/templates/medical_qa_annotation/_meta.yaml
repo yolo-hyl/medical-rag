@@ -1,0 +1,11 @@
+name: medical_qa_annotation
+description: 医疗 QA 的科室与问题类别标注
+variables:
+  question:
+    required: true
+    description: 用户问题
+  answer:
+    required: true
+    description: 答案
+aliases:
+  stable: v1

@@ -13,12 +13,13 @@ from common import (
     dense_search_config, drop_collection, fake_websearch, load_config,
 )
 
-from MedicalRag.agent.MedicalAgent import MedicalAgent
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-from MedicalRag.core.memory import SummaryBufferMemory
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
-from MedicalRag.rag.SimpleRag import SimpleRAG
+from medrag.apps.agent import MedicalAgent
+from medrag.ingest import IngestionPipeline
+from medrag.apps.memory import SummaryBufferMemory
+from medrag.storage.redis_session import RedisSessionStore
+from medrag.apps.chat_history import RedisChatHistory
+from medrag.apps.dialogue_rag import MultiDialogueRag
+from medrag.apps.simple_rag import SimpleRAG
 
 SID = "debug-fake"
 OTHER_SID = "debug-fake-other"
@@ -68,12 +69,12 @@ async def main():
         await mrag.answer("我肚子痛", session_id=SID)
         await mrag.answer("需要忌口吗", session_id=SID)
         hist_key = f"medrag:chat:{SID}:history"
-        n1 = len(await store.history(hist_key).aget_messages())
+        n1 = len(await RedisChatHistory(store, hist_key).aget_messages())
         print(f"[4] Redis 历史 {n1} 条，TTL {await store.r.ttl(hist_key)}s，"
               f"token 统计 {await store.get_json(f'medrag:chat:{SID}:tokens')}")
 
         await make_rag().answer("那能吃辣吗", session_id=SID)
-        n2 = len(await store.history(hist_key).aget_messages())
+        n2 = len(await RedisChatHistory(store, hist_key).aget_messages())
         print(f"[5] 新实例接上历史: {n1} -> {n2} 条")
 
         await clear_session(store, SID)
@@ -81,7 +82,7 @@ async def main():
             mrag.answer("并发问题一", session_id=SID),
             make_rag().answer("并发问题二", session_id=SID),
         )
-        print(f"[6] 并发两轮不交错: {[m.content for m in await store.history(hist_key).aget_messages()]}")
+        print(f"[6] 并发两轮不交错: {[m.content for m in await RedisChatHistory(store, hist_key).aget_messages()]}")
 
         # ---- 7) 流式 ----
         stages = [ev["name"] async for ev in mrag.stream("流式提问", session_id=SID)
@@ -95,7 +96,7 @@ async def main():
         for i in range(3):
             await squeezed.answer(f"第{i}轮提问", session_id=SID)
         print(f"[8] 摘要已写入 Redis: {(await store.get_json(f'medrag:chat:{SID}:summary', '(无)'))!r}，"
-              f"压缩后历史 {len(await store.history(hist_key).aget_messages())} 条")
+              f"压缩后历史 {len(await RedisChatHistory(store, hist_key).aget_messages())} 条")
 
         # ---- 9~10) Agent 跨轮状态 ----
         def make_agent():

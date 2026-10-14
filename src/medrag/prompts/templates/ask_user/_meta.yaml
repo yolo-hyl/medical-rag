@@ -1,0 +1,14 @@
+name: ask_user
+description: 首轮问诊：判断是否需要向用户追问关键信息
+variables:
+  format_instructions:
+    required: true
+    description: 结构化输出的格式说明（由解析器生成）
+  background_info:
+    required: true
+    description: 用户背景信息
+  question:
+    required: true
+    description: 用户问题
+aliases:
+  stable: v1

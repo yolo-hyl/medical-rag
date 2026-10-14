@@ -1,7 +1,9 @@
-from typing import List, Dict
-from datasets import load_dataset
-from MedicalRag.embed.sparse import Vocabulary, BM25Vectorizer
+"""构建自管理 BM25 的领域词表（需要安装 extras: zh）。词表默认保存在 medrag/retrieval/sparse/vocab_files/"""
 import time
+
+from datasets import load_dataset
+
+from medrag.retrieval.sparse.vocab import BM25Vectorizer, Vocabulary
 
 
 if __name__ == "__main__":

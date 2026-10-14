@@ -1,0 +1,11 @@
+name: update_background
+description: 根据用户最新输入更新用户背景信息
+variables:
+  background_info:
+    required: true
+    description: 用户背景信息
+  question:
+    required: true
+    description: 用户问题
+aliases:
+  stable: v1

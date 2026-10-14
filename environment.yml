@@ -158,7 +158,6 @@ dependencies:
       - sqlalchemy==2.0.42
       - sse-starlette==3.0.2
       - starlette==0.47.2
-      - stopwords==1.0.1
       - stopwords-zh==2023.6.5.13.18.38
       - sympy==1.14.0
       - tenacity==9.1.2

@@ -1,0 +1,6 @@
+# 提示词版本（见 docs/design/prompt-management.md）
+# versions 里没写的提示词使用各自 _meta.yaml 中的 stable 别名
+prompts:
+  lang: zh
+  dirs: []          # 自定义模板目录，同名提示词优先使用这里的
+  versions: {}      # 例如 {basic_rag: v2}

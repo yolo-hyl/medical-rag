@@ -19,10 +19,10 @@ import tempfile
 
 from common import QA, build_kb, dense_search_config, drop_collection, load_config, RAW_RECORDS
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-from MedicalRag.eval import collect, from_medical_rag, load_samples, load_saved, save_samples, score
-from MedicalRag.rag.SimpleRag import SimpleRAG
+from medrag.ingest import IngestionPipeline
+from medrag.eval import collect, from_medical_rag, load_samples, load_saved, save_samples
+from medrag.llm.langchain_adapter import create_chat_model, create_embeddings
+from medrag.apps.simple_rag import SimpleRAG
 
 OUT_DIR = tempfile.mkdtemp(prefix="medrag_eval_")
 DATASET = os.path.join(OUT_DIR, "eval_qa.jsonl")
@@ -74,15 +74,10 @@ def main():
         print(f"     答: {s.answer[:70]}".replace("\n", " "))
 
     # 4/5) 打分：同步函数，必须在事件循环之外调用，否则和 ragas 自带的循环冲突
-    eval_llm = ChatOpenAI(
-        model=cfg.llm.model, base_url=cfg.llm.base_url,
-        api_key=os.environ["VLLM_API_KEY"], temperature=0.0,
-    )
-    eval_emb = OpenAIEmbeddings(
-        model=cfg.embedding.text_dense.model, base_url=cfg.embedding.text_dense.base_url,
-        api_key=os.environ["VLLM_API_KEY"], check_embedding_ctx_length=False,
-    )
-    eval_emb.dimensions = None   # 同 common.build_kb 的原因
+    from medrag.eval.scorers.ragas import score   # ragas 会在 import 时给 asyncio 打补丁，用到时再导入
+
+    eval_llm = create_chat_model(cfg.llm.model_copy(update={"temperature": 0.0}))
+    eval_emb = create_embeddings(cfg.embedding.text_dense)
 
     print("4) 第一次打分:", score(samples, llm=eval_llm, embeddings=eval_emb))
     print("5) 对同一份 JSONL 重复打分:", score(load_saved(SAMPLES), llm=eval_llm, embeddings=eval_emb))

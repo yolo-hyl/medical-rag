@@ -1,0 +1,15 @@
+version: v1
+parent: null
+status: released
+format: fstring
+author: hy
+created: 2026-10-14
+changelog: 从 v2 的 prompts/templates.py 原样迁移，f-string 语法，与旧版逐字一致
+params: {}
+messages:
+  - role: system
+    content: |-
+      你是一个可以调用工具的智能体，请根据输入的搜索查询调用网络搜索工具。
+  - role: user
+    content: |-
+      请对以下查询进行网络搜索：{search_query}

@@ -114,6 +114,8 @@ medrag eval compare runs/medqa_zh/<run_v1> runs/medqa_zh/<run_v2>
 
 ## 4. 命令行工具
 
+M0 先提供 `python -m medrag.prompts list / show / check / lock`；`diff / new / release` 随评测框架在 M3 补齐，届时统一为 `medrag prompts ...`。
+
 | 命令 | 作用 |
 | --- | --- |
 | `medrag prompts list` | 列出所有提示词，以及每个提示词的版本、状态和别名 |
@@ -133,10 +135,13 @@ medrag eval compare runs/medqa_zh/<run_v1> runs/medqa_zh/<run_v2>
 
 ---
 
-## 6. v2 提示词的迁移
+## 6. v2 提示词的迁移（M0 已完成）
 
-- `templates.py` 里现有的约 20 组提示词，逐个迁移成 `v1.zh.yaml`（状态为 released）。迁移时把 `{var}` 改成 `{{ var }}`，把 `{{`、`}}` 还原成单个花括号。
-- **一致性测试**：用同一组变量分别渲染新旧两版，要求逐字一致，保证 M0 行为不变。
+- `templates.py` 里实际在用的 15 组提示词都迁移成了 `v1.zh.yaml`（状态为 released）；没有调用方的 `simple_qa` 没有迁移。
+- 迁移版本标注 `format: fstring`，**原文一个字都没改**（包括 `{{ }}` 转义）。这样既与 v2 逐字一致，也能直接交给 LangChain 的 ChatPromptTemplate（`apps/` 里有提示词要和 MessagesPlaceholder 组装）。新版本默认 `format: jinja2`；两种语法由注册表统一渲染。
+- **一致性测试**：`tests/test_prompts.py` 里记录了 v2 每段原文的 sha256，逐段比对。
+- 含行尾空格的段落（如 `summary`）用 YAML 双引号字符串保存，其余都用可读的字面量块。
+- 应用层需要自己组装消息时，用 `prompt.template("system")` 取原始模板；能整体渲染的地方用 `prompt.render(**变量)`。
 - `DEPARTMENT_MAPPING` 和 `CATEGORY_MAPPING` 不是提示词，移到 `tools/annotation.py`。
 
 ---

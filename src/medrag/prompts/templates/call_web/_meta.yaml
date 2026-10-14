@@ -1,0 +1,8 @@
+name: call_web
+description: Agent 调用联网搜索工具
+variables:
+  search_query:
+    required: true
+    description: 联网搜索查询
+aliases:
+  stable: v1

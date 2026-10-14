@@ -1,0 +1,14 @@
+name: dialogue_rag
+description: 多轮 RAG 作答：结合长期摘要、对话历史与参考资料回答
+variables:
+  running_summary:
+    required: true
+    description: 长期记忆摘要
+  all_document_str:
+    required: true
+    description: 拼好的参考资料文本
+  llm_rewritten_content:
+    required: true
+    description: 改写后的用户问题
+aliases:
+  stable: v1

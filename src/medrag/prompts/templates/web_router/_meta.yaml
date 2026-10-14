@@ -1,0 +1,14 @@
+name: web_router
+description: 判断本地检索结果是否足够，是否需要联网搜索
+variables:
+  format_instructions:
+    required: true
+    description: 结构化输出的格式说明（由解析器生成）
+  query:
+    required: true
+    description: 检索查询
+  docs:
+    required: true
+    description: 已检索到的文档
+aliases:
+  stable: v1

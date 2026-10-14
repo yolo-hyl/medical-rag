@@ -14,19 +14,22 @@
 医疗领域的 RAG 库。正在从 v2（以 QA 数据为中心的应用）重构为像 LightRAG 那样分层抽象、专攻医疗的通用 RAG 库。
 
 - **开发分支**：`v2.0.0-rebuild`。`v2.0.0` 是重构前的基线。
-- **当前状态**：代码仍是 v2 旧结构（`src/MedicalRag/`），正在按第一阶段规划迁移到 `src/medrag/`。动手之前先看 `docs/phase1/plan.md`，确认当前处于哪个里程碑（M0–M4）。
+- **当前状态**：M0（搬家）已完成，包名为 `medrag`，代码在 `src/medrag/`；下一步是 M1（统一 Schema 与存储抽象）。M0 门槛里的"重合率"一项待维护者确认（D17）。动手之前先看 `docs/phase1/plan.md`，确认当前处于哪个里程碑。
+- **过渡期的类型**：M1 之前检索结果仍用 `medrag.types.LegacyDocument`（字段与 LangChain Document 相同），知识库仍是 v2 形态的 `MedicalHybridKnowledgeBase`；新代码不要在这些过渡类型上继续扩展功能，扩展放到 M1 的 Document / Chunk / BaseVectorStorage 上。
 - **文档入口**：`docs/README.md`。架构在 `docs/architecture.md`，方向性决策在 `docs/decisions.md`。
 
 ## 目录速览
 
 | 路径 | 说明 |
 | --- | --- |
-| `src/MedicalRag/` | v2 旧代码：core / rag / agent / embed / eval / prompts / config。迁移完成后删除 |
-| `src/medrag/` | 重构目标，结构见 `docs/architecture.md` 第 3 节 |
-| `scripts/` | 01–08 号使用示例脚本（构建词表 → 入库 → 检索 → RAG → 评测 → 多轮 → Agent） |
+| `src/medrag/` | 库本体。分层与目录见 `docs/architecture.md` 第 2、3 节（第 3 节末尾有 M0 现状对照表） |
+| `src/medrag/prompts/templates/` | 版本化提示词，`<名称>/<版本>.<语言>.yaml`；`prompts.lock` 登记已发布版本的哈希 |
+| `src/medrag/testing/fake_openai.py` | 本地假 OpenAI 兼容服务，测试和离线联调用 |
+| `scripts/regression/` | 里程碑回归脚本（M0：新旧实现一致性） |
+| `scripts/` | 01–08 号使用示例（构建词表 → 入库 → 检索 → RAG → 评测 → 多轮 → Agent） |
 | `debug/` | 本地联调脚本，使用独立的配置目录 `debug/conf/` |
 | `deploy/` | Milvus / PostgreSQL / Redis / Neo4j 的 docker compose |
-| `software/` | 基于本包的前后端示例应用。第一阶段冻结（D11） |
+| `software/` | 前后端示例应用。第一阶段冻结（D11）；backend 用的是 v2 异步化之前的接口，目前跑不起来，M3 之后统一适配 |
 | `data/` | `qa_50000.jsonl`、`eval/new_qa_200.jsonl`（git lfs）；`GraphRAG-Bench/` 已提交 |
 | `data/benchmarks/`、`runs/` | 下载的数据集和评测产出，**不进 git** |
 | `docs/` | 架构、规划、决策、设计文档 |
@@ -35,21 +38,27 @@
 
 ```bash
 git lfs pull                                   # 拉取 data/ 下的大文件
-bash deploy/start.sh                           # 启动 Milvus / PostgreSQL / Redis / Neo4j（集成测试和脚本需要）
-cd src && pip install -e .                     # v2 旧结构的安装方式；M0 之后改为在仓库根目录 pip install -e ".[all]"
-pytest tests -v                                # 当前测试都依赖 deploy/ 里的服务
-python scripts/02_ingest_data.py               # 示例：入库前 100 条 QA
+pip install -e ".[all]"                        # 在仓库根目录安装；extras 见 pyproject.toml
+pip install numpy cython && pip install --no-build-isolation -e ".[zh]"   # 自管理词表的中文 BM25（pkuseg）
+bash deploy/start.sh milvus redis              # 集成测试和脚本需要；Docker Hub 429 时在 deploy/.env 设 REGISTRY=mirror.gcr.io
+pytest tests -q                                # 单测无外部依赖；@pytest.mark.services 的用例在服务不可用时自动跳过
+MEDRAG_REQUIRE_SERVICES=1 pytest tests -q      # 验收时用：集成测试必须执行
+python -m medrag.prompts check                 # 校验已发布提示词未被修改（单测里也会跑）
+python -m medrag.testing.fake_openai --port 8999   # 没有密钥时的假模型服务，base_url 指向 http://127.0.0.1:8999/v1
 ```
 
-模型服务通过环境变量提供密钥，默认是 `DASHSCOPE_API_KEY`。中间件的密码由 `deploy/start.sh` 生成到 `deploy/.env`，`ConfigLoader` 会自动加载。
+- 不要同时安装 `stopwords` 和 `stopwords-zh`：两者写同一个 `stopwords/` 目录，后装的会覆盖；只需要 `stopwords-zh`。
+- 在 `src/medrag/` 目录下直接运行 Python 时，包里的 `types.py` 会遮蔽标准库；用 `python -P` 或换个目录执行。
+
+模型服务通过环境变量提供密钥（配置里写 `api_key_env`，默认 `DASHSCOPE_API_KEY`；本地 vLLM / Ollama 可以不写）。中间件的密码由 `deploy/start.sh` 生成到 `deploy/.env`，`ConfigLoader` 会自动加载。配置目录可用环境变量 `MEDRAG_CONFIG_DIR` 替换。
 
 ## 架构约定（新代码必须遵守）
 
 1. **只用异步**：IO 方法一律写成 `async def`，不保留同步版本；CPU 密集的操作用 `asyncio.to_thread`。
 2. **依赖注入**：存储、模型客户端、提示词注册表都由调用方创建后传入，组件内部不自己创建；组件只接收自己用到的那一段配置，不接收整个 `AppConfig`。
-3. **模型层**：LLM 和 Embedding 统一通过 `openai` SDK（`AsyncOpenAI`）以 OpenAI 兼容协议访问，`base_url` 和密钥环境变量可配置（D2）。核心层（`apps/` 以外）**不 import LangChain / LangGraph**。
+3. **模型层**：LLM 和 Embedding 统一通过 `openai` SDK（`AsyncOpenAI`）以 OpenAI 兼容协议访问，`base_url` 和密钥环境变量可配置（D2）。核心层**不 import LangChain / LangGraph**，例外只有 `apps/`、`llm/langchain_adapter.py`（给应用层构造 ChatOpenAI）和 `eval/scorers/`（封装 ragas），`tests/test_layering.py` 会检查。
 4. **存储细节不外泄**：对外只暴露 `QueryParam`（mode / top_k / filters 等）。`anns_field`、`metric_type`、Milvus `expr` 只能出现在 `storage/milvus.py` 里，不能交给 LLM 或上层应用。
-5. **提示词放在文件里**：不在代码里写提示词字符串，通过 `PromptRegistry` 按名称获取。已发布（released）的版本不能修改，要改就新建一个版本。详见 `docs/design/prompt-management.md`。
+5. **提示词放在文件里**：不在代码里写提示词字符串，通过注入的 `PromptRegistry` 按名称获取（未注入时用 `PromptRegistry.builtin()`）。已发布（released）的版本不能修改，要改就新建一个版本，发布后执行 `python -m medrag.prompts lock`。v1 是从 v2 原样迁移的 f-string 版本，新版本默认 Jinja2。详见 `docs/design/prompt-management.md`。
 6. **可复现**：评测必须写出 RunManifest（git commit、配置哈希、提示词版本、数据子集版本、模型、种子）；数据子集由固定种子的脚本生成，并附带 manifest。
 7. **注释和文档用中文**，专有名词保留原文。注释写"为什么"，不复述代码本身。
 
@@ -61,6 +70,8 @@ python scripts/02_ingest_data.py               # 示例：入库前 100 条 QA
   - C 层：`medqa_zh:c_mini`，中文主评测。
 - **dev 集用于迭代，test 集用于验收**。提示词和检索参数都不要在 test 集上调。
 - 每个里程碑都必须先通过 A 层回归（`docs/phase1/plan.md` 中的门槛）才能进入下一步。
+- Milvus 批量写入后必须先 flush 再建索引、再检索：未封存的增长段只能走临时索引，召回会明显偏低，且结果随封存时机变化（M0 实测）。
+- Milvus 的 HNSW 检索加上并发写入，同一实现重跑的 top-10 重合率约 91%；判断"行为是否一致"时用 `scripts/regression/m0_parity.py verify`（逐行比对数据和查询编码），不要只看检索结果。
 - 注意数据里已知的坑：
   - `new_qa_200` 实际是 198 条，其中 `new_answer` 是 LLM 改写的，**不能当参考答案**；
   - CMB 的 test 集没有答案；

@@ -1,7 +1,8 @@
 # 架构设计（v2.0.0-rebuild）
 
 > 本文定义重构后的目标架构：分层、模块边界、核心接口、数据流和扩展点。
-> 现状说明：仓库里的代码仍然是 v2 旧结构（`src/MedicalRag/`），按 [第一阶段规划](phase1/plan.md) 的 M0 逐步迁移到本文描述的 `src/medrag/`。
+> 现状说明：M0（搬家）已完成，代码在 `src/medrag/`，分层与依赖规则已生效；但数据模型、存储接口、门面类等仍是 v2 的形态，从 M1 开始逐步变成本文描述的样子。
+> 第 3 节的目录树里，M0 已存在的文件和 M1 及以后才会出现的文件分开标注；M0 的结果见 [phase1/m0-report.md](phase1/m0-report.md)。
 > 方向性的取舍记录在 [decisions.md](decisions.md)。本文中标注"待确认"的地方，以 decisions.md 的状态为准。
 
 ---
@@ -43,6 +44,7 @@ datasets/   数据集下载、清洗、子集、loader（评测和示例使用�
 
 1. 依赖方向只能是上层 → 下层，同层之间不能循环依赖。
 2. `apps/` 之外的模块**不 import LangChain / LangGraph**。LLM 统一通过 `llm/` 的 `openai` SDK 访问。
+   例外只有两处：`llm/langchain_adapter.py` 给应用层构造 LangChain 模型；`eval/scorers/` 封装 ragas 等依赖 LangChain 的第三方评测库。由 `tests/test_layering.py` 检查。
 3. 组件不自己创建依赖，存储、模型客户端、提示词注册表都由调用方注入；组件只接收自己用到的那一段配置。
 4. 所有 IO 方法都是 `async`，不保留同步版本。CPU 密集的操作（如 pkuseg 分词）用 `asyncio.to_thread` 放到线程里执行。
 
@@ -96,6 +98,19 @@ src/medrag/                          # 包名：D1（待确认）
 ├── tools/annotation.py              # 数据标注（非核心）
 └── cli.py                           # medrag data|ingest|eval|prompts 子命令
 ```
+
+**M0 的实际情况**（与上面的目标结构对照）：
+
+| 目标中的位置 | M0 现状 | 计划 |
+| --- | --- | --- |
+| `types.py` 中的 Document / Chunk / ScoredChunk | 只有过渡类型 `LegacyDocument`（字段与 LangChain Document 一致：page_content / metadata） | M1 |
+| `base.py`、`medrag.py` | 尚未创建 | M1 |
+| `storage/milvus.py` 中的 MilvusVectorStorage | 仍是 v2 的 `MedicalHybridKnowledgeBase`（单行多向量布局），写入辅助函数在 `storage/milvus_io.py` | M1 |
+| `storage/local.py`、`storage/doc_status_*.py` | 尚未创建 | M1 / M2 |
+| `retrieval/fusion.py`、`rerank.py`、`context.py` | 融合仍在 Milvus 里完成；上下文组装在 `apps/memory.py` 的 `TokenBudget` | M1 / M3 |
+| `datasets/`、`cli.py` | 尚未创建；提示词命令行先以 `python -m medrag.prompts` 提供 | M3 |
+| `apps/` | `rag_base.py`（含 `default_search_config`）、`simple_rag.py`、`dialogue_rag.py`、`memory.py`、`retriever.py`、`chat_history.py`（把 Redis 列表包装成 LangChain 对话历史）、`timing.py`、`agent/` | M3 改为调用 `aquery` |
+| — | `testing/fake_openai.py`：本地假 OpenAI 兼容服务，测试和离线联调用 | 保留 |
 
 ---
 

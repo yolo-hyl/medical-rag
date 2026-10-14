@@ -1,0 +1,8 @@
+name: extract_user_info
+description: 从追问过程中抽取用户明确提到的背景信息
+variables:
+  question:
+    required: true
+    description: 用户问题
+aliases:
+  stable: v1

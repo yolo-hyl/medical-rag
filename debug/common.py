@@ -1,15 +1,15 @@
 """联调脚本的公共件。
 
-注意导入顺序：本模块会先清理代理环境变量，再导入 MedicalRag。
-所以每个脚本都要**先** `from common import ...`，再导入 MedicalRag 的东西。
+注意导入顺序：本模块会先清理代理环境变量，再导入 medrag。
+所以每个脚本都要**先** `from common import ...`，再导入 medrag 的东西。
 """
 import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # 1) 清理代理环境变量
-#    - ALL_PROXY=socks://... 会让 httpx 在构造客户端时直接抛 ValueError，
-#      import langchain_ollama 就崩（ollama 在 import 时会 new 一个 httpx.Client）；
+#    - ALL_PROXY=socks://... 会让 httpx 在构造客户端时直接抛 ValueError
+#      （没装 socksio 时 httpx 不认 socks 协议）；
 #    - http(s)_proxy 会把 10.88.88.6 的请求也绕进代理，而 no_proxy 里没有它。
 #    需要保留代理时设 MEDRAG_KEEP_PROXY=1。
 # ---------------------------------------------------------------------------
@@ -25,11 +25,8 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage  # noqa: E402
 from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402
 
-from MedicalRag.config.loader import ConfigLoader  # noqa: E402
-from MedicalRag.config.models import (  # noqa: E402
-    FusionSpec, SearchRequest, SingleSearchRequest,
-)
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase  # noqa: E402
+from medrag.config import ConfigLoader, FusionSpec, SearchRequest, SingleSearchRequest  # noqa: E402
+from medrag.storage.milvus import MedicalHybridKnowledgeBase  # noqa: E402
 
 CONF_DIR = str(Path(__file__).parent / "conf")
 
@@ -54,46 +51,21 @@ def load_config():
 
 
 def build_kb(cfg):
-    """创建知识库，并打上两个已知问题的补丁（等包侧修好后这里可以删）。
+    """创建知识库。
 
-    1. Octen-Embedding-8B 不支持 Matryoshka，请求里不能带 dimensions，
-       而 create_embedding_client 目前总会传；
-    2. Agent 的 database_search 工具让 LLM 自己填 collection_name，默认值是
-       medical_knowledge，不会是这里的 medrag_debug；LLM 还常常挑上 text_sparse
-       + IP，而 Milvus 托管 BM25 下 metric 必须是 BM25，会报 MilvusException。
-       所以包装 kb.search 把请求校正一遍，否则 Agent 里 database_search 永远
-       取不到数据。其他调用方传的本来就是对的，不受影响。
+    v2 时这里有两个补丁，M0 已在包里修好：
+    1. Octen-Embedding-8B 不支持 Matryoshka，请求不能带 dimensions → 配置 send_dimensions: false；
+    2. database_search 工具让 LLM 自己填 collection / 检索字段 / 指标，经常取不到数据
+       → 工具只接收查询文本和条数，检索计划由调用方固定（D10）。
     """
-    kb = MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
-    for embedder in kb.EMBEDDERS.values():
-        embedder.dimensions = None
-
-    raw_search = kb.search
-
-    async def search_with_fixed_request(req):
-        dense = [r for r in req.requests if r.anns_field != "text_sparse"]
-        if not dense:
-            dense = [SingleSearchRequest(anns_field="summary_dense", metric_type="COSINE",
-                                         search_params={"ef": 64}, limit=10)]
-        return await raw_search(req.model_copy(update={
-            "collection_name": kb.collection_name,
-            "requests": dense,
-            # LLM 经常只挑一两个 output_fields，取不到 text 的话 Document.page_content
-            # 就是空的，RAG 节点等于没拿到资料
-            "output_fields": ["text", "summary", "document", "source", "source_name",
-                              "lt_doc_id", "chunk_id"],
-        }))
-
-    kb.search = search_with_fixed_request
-    return kb
+    return MedicalHybridKnowledgeBase(cfg.milvus, cfg.embedding)
 
 
 def dense_search_config(cfg, limit: int = 3) -> SearchRequest:
     """两路稠密向量的混合检索配置。
 
-    没有用 text_sparse：Milvus 托管 BM25 时 metric 必须是 BM25，而
-    SingleSearchRequest.metric_type 目前只允许 COSINE / IP，表达不出来。
-    自管理词表（provider: self）时可以正常用 IP，届时可换成包里的默认配置。
+    M0 起 SingleSearchRequest.metric_type 支持 BM25，Milvus 托管稀疏向量时也可以加上 text_sparse，
+    包里的默认配置见 medrag.apps.rag_base.default_search_config。
     """
     return SearchRequest(
         query="",

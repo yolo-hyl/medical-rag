@@ -9,8 +9,11 @@ import asyncio
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.session_store import RedisSessionStore
+from medrag.apps.chat_history import RedisChatHistory
+from medrag.config import ConfigLoader
+from medrag.storage.redis_session import RedisSessionStore
+
+pytestmark = pytest.mark.services
 
 SESSION_ID = "pytest-session"
 HISTORY_KEY = f"medrag:chat:{SESSION_ID}:history"
@@ -33,7 +36,7 @@ def run_with_store(coro_fn):
 
 def test_history_roundtrip():
     async def case(store):
-        hist = store.history(HISTORY_KEY)
+        hist = RedisChatHistory(store, HISTORY_KEY)
         await hist.aadd_messages([HumanMessage(content="你好"), AIMessage(content="您好")])
         return await hist.aget_messages()
 
@@ -44,7 +47,7 @@ def test_history_roundtrip():
 
 def test_history_trim_keeps_tail():
     async def case(store):
-        hist = store.history(HISTORY_KEY)
+        hist = RedisChatHistory(store, HISTORY_KEY)
         await hist.aadd_messages([HumanMessage(content=f"第{i}条") for i in range(4)])
         await hist.atrim(2)
         return [m.content for m in await hist.aget_messages()]
@@ -54,7 +57,7 @@ def test_history_trim_keeps_tail():
 
 def test_keys_have_ttl():
     async def case(store):
-        await store.history(HISTORY_KEY).aadd_messages([HumanMessage(content="你好")])
+        await RedisChatHistory(store, HISTORY_KEY).aadd_messages([HumanMessage(content="你好")])
         await store.set_json(JSON_KEY, {"msg_len": [10]})
         return await store.r.ttl(HISTORY_KEY), await store.r.ttl(JSON_KEY), store.ttl
 

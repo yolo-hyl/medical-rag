@@ -3,9 +3,9 @@
 """
 import asyncio
 import logging
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-from MedicalRag.rag.SimpleRag import SimpleRAG
+from medrag.config import ConfigLoader
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
+from medrag.apps.simple_rag import SimpleRAG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -1,0 +1,16 @@
+version: v1
+parent: null
+status: released
+format: fstring
+author: hy
+created: 2026-10-14
+changelog: 从 v2 的 prompts/templates.py 原样迁移，f-string 语法，与旧版逐字一致
+params: {}
+messages:
+  - role: system
+    content: |-
+      你是一个检索查询改写器。参考对话历史（如果有）和用户输入，把用户的最后问题改写成独立、自洽、便于进行单次且明确的向量检索查询文本。请不要进行过于复杂的主观推断和胡编乱造。如果用户的查询足够清晰，可不做任何处理。
+  - role: user
+    content: |-
+      请只输出改写后的查询：
+      {original_input}

@@ -30,7 +30,7 @@
 
 ## 2. 里程碑
 
-### M0 搬家（行为不变）
+### M0 搬家（行为不变）　**状态：已完成，门槛中的重合率一项待定（D17）**，见 [m0-report.md](m0-report.md)
 
 1. 新建 `src/medrag/` 目录结构和根目录的 `pyproject.toml`（extras：`milvus / redis / pg / agent / eval / data`），删除 `src/setup.py`。
 2. 实现 `llm/openai_compat.py`，替换掉 `core/utils.py` 里的 LangChain 客户端；`apps/` 改为通过 `langchain_adapter` 获取 ChatModel。

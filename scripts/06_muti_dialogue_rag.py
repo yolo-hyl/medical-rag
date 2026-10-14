@@ -3,10 +3,10 @@
 """
 import asyncio
 import logging
-from MedicalRag.config.loader import ConfigLoader
-from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
+from medrag.config import ConfigLoader
+from medrag.storage.milvus import MedicalHybridKnowledgeBase
+from medrag.storage.redis_session import RedisSessionStore
+from medrag.apps.dialogue_rag import MultiDialogueRag
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ async def main():
     config_manager = ConfigLoader()
 
     # # 支持自定义token估计方法
-    # from MedicalRag.rag.utils import register_estimate_function
+    # from medrag.apps.memory import register_estimate_function
     # # 1) 注册自己的函数
     # @register_estimate_function("self_fun")
     # def estimate_tokens(text: str) -> int:

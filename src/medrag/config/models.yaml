@@ -1,0 +1,31 @@
+# 模型配置：换模型 / 换服务商时改这里
+# 统一走 OpenAI 兼容协议（D2）：DashScope、vLLM、Ollama（/v1 端点）都按 base_url + api_key_env 接入
+embedding:
+  summary_dense:
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    dimension: 1024
+    max_batch: 10        # DashScope 单次请求最多 10 条
+  text_dense:
+    model: text-embedding-v4
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    dimension: 1024
+    max_batch: 10
+  text_sparse:
+    provider: self
+    vocab_path_or_name: vocab.pkl.gz
+    algorithm: BM25
+    domain_model: medicine
+    k1: 1.5
+    b: 0.75
+    build:
+      workers: 8
+      chunksize: 64
+
+llm:
+  model: qwen3.5-plus
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: DASHSCOPE_API_KEY
+  temperature: 0.1

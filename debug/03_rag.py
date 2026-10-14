@@ -17,10 +17,11 @@ import time
 
 from common import RAW_RECORDS, build_kb, clear_session, dense_search_config, drop_collection, load_config
 
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
-from MedicalRag.core.session_store import RedisSessionStore
-from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
-from MedicalRag.rag.SimpleRag import SimpleRAG
+from medrag.ingest import IngestionPipeline
+from medrag.storage.redis_session import RedisSessionStore
+from medrag.apps.chat_history import RedisChatHistory
+from medrag.apps.dialogue_rag import MultiDialogueRag
+from medrag.apps.simple_rag import SimpleRAG
 
 SID = "debug-rag"
 
@@ -81,7 +82,7 @@ async def main():
         print(f"    第 2 轮的改写结果: {rewritten!r}")
         print(f"    改写用上了上一轮主题: {'晕' in (rewritten or '')}")
 
-        hist = await store.history(f"medrag:chat:{SID}:history").aget_messages()
+        hist = await RedisChatHistory(store, f"medrag:chat:{SID}:history").aget_messages()
         print(f"    Redis 历史 {len(hist)} 条 {[m.content[:8] for m in hist]}")
         print(f"    token 统计: {await store.get_json(f'medrag:chat:{SID}:tokens')}")
 
@@ -95,7 +96,7 @@ async def main():
             mrag.answer("并发问题一", session_id=SID),
             make_rag().answer("并发问题二", session_id=SID),
         )
-        hist = await store.history(f"medrag:chat:{SID}:history").aget_messages()
+        hist = await RedisChatHistory(store, f"medrag:chat:{SID}:history").aget_messages()
         print(f"[7] 并发两轮不交错: {[m.content[:8] for m in hist]}")
 
         # ---- 8) 流式 ----
