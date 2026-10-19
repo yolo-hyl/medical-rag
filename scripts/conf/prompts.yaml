@@ -1,4 +1,4 @@
-# 提示词版本（见 docs/design/prompt-management.md）
+# 提示词版本（见 docs/architecture.md 第 11 节）
 # versions 里没写的提示词使用各自 _meta.yaml 中的 stable 别名
 prompts:
   lang: zh

@@ -1,6 +1,6 @@
 """关系型存储：配置了 postgres.host 用 PostgreSQL，否则降级为 SQLite（D18）
 
-只封装两边都支持的最小接口，给 M2 的 DocStatusStorage 等组件使用：
+只封装两边都支持的最小接口，给 M1 的 KnowledgeStore（文档与状态、Claim、概念、治理事件、任务）使用：
 
     db = SqlDatabase(cfg.postgres)
     await db.execute("CREATE TABLE IF NOT EXISTS doc_status (doc_id TEXT PRIMARY KEY, state TEXT)")

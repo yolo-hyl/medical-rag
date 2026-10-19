@@ -2,7 +2,8 @@
 
 M0 只做迁移：表结构、检索与融合逻辑与 v2 一致；向量化改走 OpenAICompatEmbedding，
 返回值由 LangChain Document 换成字段相同的 LegacyDocument。
-M1 改造为 BaseVectorStorage 的实现 MilvusVectorStorage，表结构由 Chunk 生成（docs/architecture.md 第 9 节）。
+M1 改造为 BaseVectorStorage 的实现 MilvusVectorStorage：一个 workspace 三个 collection（chunks / claims / aliases），
+表结构见 docs/architecture.md 第 6.2 节。
 """
 import asyncio
 import logging

@@ -177,7 +177,7 @@ class DataConfig(BaseModel):
 
 
 # =============================================================================
-# 提示词（版本化管理，见 docs/design/prompt-management.md）
+# 提示词（版本化管理，见 docs/architecture.md 第 11 节）
 # =============================================================================
 class PromptsConfig(BaseModel):
     lang: Literal["zh", "en"] = "zh"

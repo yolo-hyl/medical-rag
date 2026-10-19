@@ -1,6 +1,6 @@
 """图数据库：配置了 neo4j.uri 用 Neo4j，否则降级为 FalkorDBLite（D18）
 
-只封装执行 Cypher 这一件事，给第二阶段的知识图谱存储使用：
+只封装执行 Cypher 这一件事，给 M1 起的图投影（storage/graph_projection.py）使用：
 
     graph = GraphDatabase(cfg.neo4j)
     await graph.query("MERGE (d:Disease {name: $name})", {"name": "高血压"})
@@ -11,7 +11,7 @@
 - 参数一律用 `$name` 形式传入，不要拼接字符串。
 - 返回值统一转成纯 Python 类型：每行一个 dict（键是 RETURN 的列名），节点 / 关系只保留属性。
 - FalkorDB 支持的是 openCypher 的子集，个别语法（如部分 APOC 过程、某些子查询写法）与 Neo4j 不同；
-  第二阶段写图谱存储时只用两边都支持的语法，并在两个后端上各跑一遍测试。
+  图投影只用两边都支持的语法，并在两个后端上各跑一遍测试。
 """
 from __future__ import annotations
 

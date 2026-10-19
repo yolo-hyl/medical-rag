@@ -1,4 +1,4 @@
-"""版本化提示词注册表（设计见 docs/design/prompt-management.md）
+"""版本化提示词注册表（设计见 docs/architecture.md 第 11 节）
 
     templates/<name>/_meta.yaml        说明、变量定义、别名（stable / latest）
     templates/<name>/<version>.<lang>.yaml   一个版本一个文件

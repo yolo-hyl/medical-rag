@@ -1,8 +1,8 @@
 # medrag：专攻医疗领域的通用 RAG 库
 
-> **v2.0.0-rebuild 重构中**：项目正在从 v2（以 QA 数据为中心的医疗问答应用）重构为像 [LightRAG](https://github.com/HKUDS/LightRAG) 那样分层抽象、专攻医疗领域的通用 RAG 库。
-> 当前处于第一阶段的 **M0（搬家）**：包名从 `MedicalRag` 改为 `medrag`，代码按新的分层迁移，检索与问答行为与 v2 保持一致。
-> 目标架构见 [docs/architecture.md](docs/architecture.md)，第一阶段规划见 [docs/phase1/plan.md](docs/phase1/plan.md)，方向性决策见 [docs/decisions.md](docs/decisions.md)。
+> **v2.0.0-rebuild 重构中**：项目正在从 v2（以 QA 数据为中心的医疗问答应用）重构为**医学知识的可验证层**：把指南、说明书、教材等知识文本变成带条件、带有效期、带出处的陈述（Claim），在此之上按时间点和适用条件作答、如实呈现分歧、逐句可核查。
+> 已完成 **M0（搬家）**：包名从 `MedicalRag` 改为 `medrag`，代码按新的分层迁移，检索与问答行为与 v2 保持一致。下面的功能和用法描述的是当前可用的代码。
+> 要做什么、研制路线和决策记录见 [docs/solution.md](docs/solution.md)；结构、接口、存储和目标用法见 [docs/architecture.md](docs/architecture.md)。
 
 ## 能做什么
 
@@ -32,8 +32,8 @@ medical-rag/
 ├── tests/                      # 单测（存储走降级实现，无外部依赖）+ 集成测试（@pytest.mark.services）
 ├── deploy/                     # Milvus / PostgreSQL / Redis / Neo4j 的 docker compose；storage.yaml 是连接它们的配置
 ├── data/                       # 示例数据（git lfs）与 GraphRAG-Bench
-├── docs/                       # 架构、规划、决策、设计文档
-└── software/                   # 基于本包的前后端示例应用（第一阶段冻结，见 D11）
+├── docs/                       # solution.md（宏观方案）、architecture.md（技术方案）
+└── software/                   # 基于本包的前后端示例应用（冻结到阶段三，见 D11）
 ```
 
 ## 快速开始
@@ -84,8 +84,8 @@ bash deploy/stop.sh --purge           # 删除容器和全部数据（需确认�
 |------|------|----------|
 | Milvus 2.6 | 向量库 | `http://127.0.0.1:19530` |
 | Redis 7.4 | 多轮对话与 Agent 的会话状态、会话锁 | `127.0.0.1:6379` |
-| PostgreSQL 16 | 文档入库状态（M2 起使用） | `127.0.0.1:5432` |
-| Neo4j 5.26 Community | 知识图谱（第二阶段起使用） | `bolt://127.0.0.1:7687` |
+| PostgreSQL 16 | 关系库：文档、Claim、概念、治理事件（M1 起使用） | `127.0.0.1:5432` |
+| Neo4j 5.26 Community | 图投影：文档版本链、概念层级、Claim（M1 起使用） | `bolt://127.0.0.1:7687` |
 
 - 启动后让代码连接这些服务：用 `deploy/storage.yaml` 覆盖存储配置，例如 `export MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml`，或在代码里 `ConfigLoader(overrides=["deploy/storage.yaml"])`。
 - 首次运行会由 `deploy/.env.example` 生成 `deploy/.env`，并为各服务生成随机密码；`ConfigLoader` 会自动读取，无需手动导出。
@@ -218,7 +218,7 @@ vectors = await emb(["文本1", "文本2"])     # 按 max_batch 分批、按 con
 
 ## 提示词
 
-提示词放在 `src/medrag/prompts/templates/<名称>/` 下，每个版本一个文件，设计见 [docs/design/prompt-management.md](docs/design/prompt-management.md)：
+提示词放在 `src/medrag/prompts/templates/<名称>/` 下，每个版本一个文件，设计见 [docs/architecture.md](docs/architecture.md) 第 11 节：
 
 ```bash
 python -m medrag.prompts list                    # 列出提示词、版本、状态与别名
@@ -243,13 +243,13 @@ bash deploy/start.sh && MEDRAG_REQUIRE_SERVICES=1 pytest tests -q   # 要求集�
 - `tests/test_layering.py` 检查核心层没有 import LangChain（只允许 `apps/`、`llm/langchain_adapter.py`、`eval/scorers/`）。
 - `tests/test_apps_e2e.py` 跑通入库 → 检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图 → Agent 多轮。
 
-里程碑回归（M0 新旧实现一致性）的用法见 `scripts/regression/m0_parity.py` 文件头，结果记录在 [docs/phase1/m0-report.md](docs/phase1/m0-report.md)。
+里程碑回归（M0 新旧实现一致性）的用法见 `scripts/regression/m0_parity.py` 文件头，M0 的验收结论见 [docs/solution.md](docs/solution.md) 研制路线中的 M0。
 
 ## 注意事项
 
 - ⚠️ 本项目仅供学习研究使用，不能替代专业医疗建议。任何医疗决策都应咨询专业医生。
 - 医疗数据需符合相关法规，建议在私有环境部署。
-- v2 README 中的"检索效果对比"等数字没有可复现的评测记录，已移除；之后的效果数字一律以 `docs/phase1/` 中可复现的评测结果为准。
+- v2 README 中的"检索效果对比"等数字没有可复现的评测记录，已移除；之后的效果数字一律以带 RunManifest 的可复现评测结果为准。
 
 ## 许可证
 

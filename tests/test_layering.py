@@ -1,4 +1,4 @@
-"""分层约束（docs/architecture.md 第 2 节）：核心层不依赖 LangChain / LangGraph
+"""分层约束（docs/architecture.md 第 1 节第 3 条）：核心层不依赖 LangChain / LangGraph
 
 允许依赖的位置：apps/（应用层）、llm/langchain_adapter.py（给应用层构造模型）、eval/scorers/（封装 ragas）。
 """
