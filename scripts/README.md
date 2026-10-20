@@ -34,4 +34,4 @@
 
 ## 回归：`regression/`
 
-`regression/m0_parity.py`：M0 新旧实现一致性回归（用法见文件头，验收结论见 `docs/solution.md` 研制路线中的 M0）。它的配置全部通过命令行参数传入，不读 `conf/`。
+`regression/m0_parity.py`：搬家时的新旧实现一致性回归（用法见文件头，结论见 `docs/architecture.md` 第 16 节）。它的配置全部通过命令行参数传入，不读 `conf/`。

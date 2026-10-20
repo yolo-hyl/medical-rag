@@ -1,5 +1,5 @@
 # conda 环境（锁定版本）。依赖以仓库根目录的 pyproject.toml 为准，推荐 pip install -e ".[all]"。
-# 升级到 Python 3.12（D19）时只更新了有变化的包（pymilvus / milvus-lite / grpcio / protobuf，以及新增的降级依赖），
+# 升级到 Python 3.12 时只更新了有变化的包（pymilvus / milvus-lite / grpcio / protobuf，以及新增的降级依赖），
 # 其余版本沿用 3.10 时的锁定，没有用 conda 在 3.12 上整体重建验证；遇到冲突时以 pyproject.toml 为准。
 name: rag
 channels:
@@ -141,9 +141,9 @@ dependencies:
       - ragas==0.3.2
       - readme-renderer==44.0
       - redis==5.2.1
-      - fakeredis==2.39.0   # 未配置 redis.host 时的降级实现（D18）
+      - fakeredis==2.39.0   # 未配置 redis.host 时的降级实现
       - lupa==2.8             # fakeredis 执行 Lua（会话锁需要）
-      - falkordblite==0.10.0   # 未配置 neo4j.uri 时的降级实现，要求 Python 3.12（D19）
+      - falkordblite==0.10.0   # 未配置 neo4j.uri 时的降级实现，要求 Python 3.12
       - falkordb==1.2.0
       - psutil==7.2.2
       - referencing==0.36.2

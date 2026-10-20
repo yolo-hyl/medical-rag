@@ -1,6 +1,6 @@
-"""图数据库：配置了 neo4j.uri 用 Neo4j，否则降级为 FalkorDBLite（D18）
+"""图数据库：配置了 neo4j.uri 用 Neo4j，否则降级为 FalkorDBLite
 
-只封装执行 Cypher 这一件事，给 M1 起的图投影（storage/graph_projection.py）使用：
+只封装执行 Cypher 这一件事，给知识层的图投影（storage/graph_projection.py）使用：
 
     graph = GraphDatabase(cfg.neo4j)
     await graph.query("MERGE (d:Disease {name: $name})", {"name": "高血压"})

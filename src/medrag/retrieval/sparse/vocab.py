@@ -1,7 +1,7 @@
 """自管理词表的 BM25 稀疏向量（pkuseg medicine 领域分词）
 
 词表在建库前一次性构建（scripts/01_build_vocab.py），IDF 与 avgdl 在构建时固定；
-增量入库后统计量会失真，是否改用 Milvus 托管 BM25 见 docs/solution.md 决策记录 D3（M1 做 A/B）。
+增量入库后统计量会失真，是否改用 Milvus 托管 BM25 要在回归基准上做 A/B 后再定（见 docs/architecture.md 第 7.2 节）。
 """
 import gzip
 import math

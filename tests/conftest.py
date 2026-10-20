@@ -4,7 +4,7 @@
   存储走未配置地址时的降级实现（Milvus Lite / fakeredis / SQLite / FalkorDBLite），数据文件放在 pytest 的临时目录。
 - @pytest.mark.services(...) 的测试连接 deploy/start.sh 启动的真实服务，参数是需要的服务名
   （milvus / redis / postgres / neo4j，不写时默认 milvus + redis）；服务不可用时自动跳过，
-  设置 MEDRAG_REQUIRE_SERVICES=1 则改为失败（里程碑验收时用）。
+  设置 MEDRAG_REQUIRE_SERVICES=1 则改为失败（验收时用）。
 """
 import os
 import socket

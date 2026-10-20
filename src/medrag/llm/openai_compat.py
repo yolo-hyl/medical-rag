@@ -1,4 +1,4 @@
-"""OpenAI 兼容协议的 LLM / Embedding 客户端（D2）
+"""OpenAI 兼容协议的 LLM / Embedding 客户端
 
 核心层统一通过 `openai` SDK 访问模型，不依赖 LangChain。DashScope、vLLM、Ollama（/v1 端点）、
 OpenAI 都按 base_url + 密钥接入；以后接入其他模型商，只需再实现满足同样调用方式的类。

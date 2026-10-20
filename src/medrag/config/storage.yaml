@@ -1,6 +1,6 @@
 # 存储与中间件配置
 #
-# 默认不配置任何服务地址：四个服务都会降级为嵌入式实现，不需要启动 Docker 就能跑通（D18）。
+# 默认不配置任何服务地址：四个服务都会降级为嵌入式实现，不需要启动 Docker 就能跑通。
 #   milvus.uri 为空    → Milvus Lite（lite_path）
 #   redis.host 为空    → fakeredis（进程内存，进程退出即丢失）
 #   postgres.host 为空 → SQLite（sqlite_path）

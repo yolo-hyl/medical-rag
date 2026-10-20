@@ -1,7 +1,7 @@
 """入库流水线（v2 行为）
 
-M0 只做迁移：字段映射、文本拼接、主键规则与 v2 一致；唯一的行为变化是写入后先 flush 再建索引。
-已知问题留到 M1 随统一 Schema 一起改：
+搬家时只做迁移：字段映射、文本拼接、主键规则与 v2 一致；唯一的行为变化是写入后先 flush 再建索引。
+已知问题留到重写入库流程时随统一 Schema 一起改：
 - 主键 hash_id = md5(summary)，summary 为空的文献 chunk 会互相覆盖；
 - 只区分 qa 与其他来源，QA 文本的中文前缀写死在这里。
 v2 里没有调用方的 get_stopwords（读本地停用词表）已删除，停用词表文件保留在 retrieval/sparse/stopword_lists/。

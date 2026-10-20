@@ -8,7 +8,7 @@ version = "2.0.0.dev0"
 description = "专攻医疗领域的通用 RAG 库"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.12"   # FalkorDBLite 要求 3.12（D19）
+requires-python = ">=3.12"   # FalkorDBLite 要求 3.12
 authors = [{ name = "hy", email = "zjl4376@gmail.com" }]
 keywords = ["RAG", "Medical", "LLM"]
 # 核心依赖只包含模型层、配置与提示词；存储、应用、评测按需通过 extras 安装
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 每组都带着未配置服务地址时的降级实现（D18）：Milvus Lite / fakeredis / SQLite（标准库）/ FalkorDBLite
+# 每组都带着未配置服务地址时的降级实现：Milvus Lite / fakeredis / SQLite（标准库）/ FalkorDBLite
 # 实测组合：pymilvus 2.6 + milvus-lite 3.x 全部可用；pymilvus 2.5 + milvus-lite 3.x 混合检索报 function_score；
 # milvus-lite 2.5 不支持 HNSW。milvus-lite 没有 Windows 版本
 milvus = ["pymilvus>=2.6,<2.7", "milvus-lite>=3.0; sys_platform != 'win32'"]

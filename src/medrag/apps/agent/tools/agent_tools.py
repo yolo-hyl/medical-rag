@@ -19,7 +19,7 @@ WebSearchFunc = Callable[[str, int], List[Document]]
 class AgentTools:
     """Agent 可调用的工具。
 
-    本地检索工具只接收查询文本和返回条数（D10）：检索字段、距离指标、过滤表达式、collection
+    本地检索工具只接收查询文本和返回条数：检索字段、距离指标、过滤表达式、collection
     都由调用方配置的 search_config 决定，不交给 LLM。v2 让 LLM 直接填 SearchRequest，
     常出现 collection 填错、给 Milvus 托管的 BM25 配 IP 指标等错误，取不到数据。
     """

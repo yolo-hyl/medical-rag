@@ -1,5 +1,5 @@
 # 示例脚本的模型配置（scripts/ 专用，改这里不影响包内默认配置）
-# 统一走 OpenAI 兼容协议（D2）：DashScope、vLLM、Ollama（/v1 端点）都按 base_url + api_key_env 接入
+# 统一走 OpenAI 兼容协议：DashScope、vLLM、Ollama（/v1 端点）都按 base_url + api_key_env 接入
 #
 # 换成本地服务时，按下面的写法改 base_url / model，并去掉 api_key_env：
 #   Ollama：base_url: http://localhost:11434/v1

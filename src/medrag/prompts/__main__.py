@@ -1,4 +1,4 @@
-"""提示词命令行（M0 先提供 list / show / check / lock；diff / new / release 随评测框架在 M3 补齐）
+"""提示词命令行（目前提供 list / show / check / lock；diff / new / release 之后随评测框架补齐）
 
     python -m medrag.prompts list
     python -m medrag.prompts show basic_rag [--version v1] [--lang zh]

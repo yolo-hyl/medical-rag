@@ -1,8 +1,8 @@
 # medrag：专攻医疗领域的通用 RAG 库
 
 > **v2.0.0-rebuild 重构中**：项目正在从 v2（以 QA 数据为中心的医疗问答应用）重构为**医学知识的可验证层**：把指南、说明书、教材等知识文本变成带条件、带有效期、带出处的陈述（Claim），在此之上按时间点和适用条件作答、如实呈现分歧、逐句可核查。
-> 已完成 **M0（搬家）**：包名从 `MedicalRag` 改为 `medrag`，代码按新的分层迁移，检索与问答行为与 v2 保持一致。下面的功能和用法描述的是当前可用的代码。
-> 要做什么、研制路线和决策记录见 [docs/solution.md](docs/solution.md)；结构、接口、存储和目标用法见 [docs/architecture.md](docs/architecture.md)。
+> 已完成**搬家**：包名从 `MedicalRag` 改为 `medrag`，代码按新的分层迁移，检索与问答行为与 v2 保持一致。下面的功能和用法描述的是当前可用的代码。
+> 要解决的问题、系统框架、产品方向和数据见 [docs/solution.md](docs/solution.md)；结构、接口、存储和目标用法见 [docs/architecture.md](docs/architecture.md)。
 
 ## 能做什么
 
@@ -28,12 +28,12 @@ medical-rag/
 │   ├── eval/                   # 统一评测流程；scorers/ 下是 ragas 打分
 │   ├── tools/                  # 数据标注等非核心工具
 │   └── testing/                # 本地假 OpenAI 服务（测试、离线联调用）
-├── scripts/                    # 01–08 使用示例（配置在 scripts/conf/，可随意修改）；regression/ 下是里程碑回归脚本
+├── scripts/                    # 01–08 使用示例（配置在 scripts/conf/，可随意修改）；regression/ 下是回归脚本
 ├── tests/                      # 单测（存储走降级实现，无外部依赖）+ 集成测试（@pytest.mark.services）
 ├── deploy/                     # Milvus / PostgreSQL / Redis / Neo4j 的 docker compose；storage.yaml 是连接它们的配置
 ├── data/                       # 示例数据（git lfs）与 GraphRAG-Bench
 ├── docs/                       # solution.md（宏观方案）、architecture.md（技术方案）
-└── software/                   # 基于本包的前后端示例应用（冻结到阶段三，见 D11）
+└── software/                   # 基于本包的前后端示例应用（已冻结，到产品阶段再适配）
 ```
 
 ## 快速开始
@@ -84,8 +84,8 @@ bash deploy/stop.sh --purge           # 删除容器和全部数据（需确认�
 |------|------|----------|
 | Milvus 2.6 | 向量库 | `http://127.0.0.1:19530` |
 | Redis 7.4 | 多轮对话与 Agent 的会话状态、会话锁 | `127.0.0.1:6379` |
-| PostgreSQL 16 | 关系库：文档、Claim、概念、治理事件（M1 起使用） | `127.0.0.1:5432` |
-| Neo4j 5.26 Community | 图投影：文档版本链、概念层级、Claim（M1 起使用） | `bolt://127.0.0.1:7687` |
+| PostgreSQL 16 | 关系库：文档、Claim、概念、治理事件（知识层使用） | `127.0.0.1:5432` |
+| Neo4j 5.26 Community | 图投影：文档版本链、概念层级、Claim（知识层使用） | `bolt://127.0.0.1:7687` |
 
 - 启动后让代码连接这些服务：用 `deploy/storage.yaml` 覆盖存储配置，例如 `export MEDRAG_CONFIG_OVERRIDES=deploy/storage.yaml`，或在代码里 `ConfigLoader(overrides=["deploy/storage.yaml"])`。
 - 首次运行会由 `deploy/.env.example` 生成 `deploy/.env`，并为各服务生成随机密码；`ConfigLoader` 会自动读取，无需手动导出。
@@ -218,7 +218,7 @@ vectors = await emb(["文本1", "文本2"])     # 按 max_batch 分批、按 con
 
 ## 提示词
 
-提示词放在 `src/medrag/prompts/templates/<名称>/` 下，每个版本一个文件，设计见 [docs/architecture.md](docs/architecture.md) 第 11 节：
+提示词放在 `src/medrag/prompts/templates/<名称>/` 下，每个版本一个文件，设计见 [docs/architecture.md](docs/architecture.md) 第 12 节：
 
 ```bash
 python -m medrag.prompts list                    # 列出提示词、版本、状态与别名
@@ -235,7 +235,7 @@ python -m medrag.prompts lock                    # 新版本发布后登记哈�
 
 ```bash
 pytest tests -q                                  # 不需要任何外部服务；集成测试在服务不可用时自动跳过
-bash deploy/start.sh && MEDRAG_REQUIRE_SERVICES=1 pytest tests -q   # 要求集成测试必须执行（里程碑验收时用）
+bash deploy/start.sh && MEDRAG_REQUIRE_SERVICES=1 pytest tests -q   # 要求集成测试必须执行（验收时用）
 ```
 
 - 单测里的模型请求都走 `medrag.testing.fake_openai`，不需要密钥和网络；存储走降级实现，数据文件放在 pytest 的临时目录。
@@ -243,7 +243,7 @@ bash deploy/start.sh && MEDRAG_REQUIRE_SERVICES=1 pytest tests -q   # 要求集�
 - `tests/test_layering.py` 检查核心层没有 import LangChain（只允许 `apps/`、`llm/langchain_adapter.py`、`eval/scorers/`）。
 - `tests/test_apps_e2e.py` 跑通入库 → 检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图 → Agent 多轮。
 
-里程碑回归（M0 新旧实现一致性）的用法见 `scripts/regression/m0_parity.py` 文件头，M0 的验收结论见 [docs/solution.md](docs/solution.md) 研制路线中的 M0。
+搬家时的回归（新旧实现一致性）用法见 `scripts/regression/m0_parity.py` 文件头，结论见 [docs/architecture.md](docs/architecture.md) 第 16 节。
 
 ## 注意事项
 

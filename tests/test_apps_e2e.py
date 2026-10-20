@@ -2,7 +2,7 @@
     lite      不配置服务地址：Milvus Lite + fakeredis（不需要任何外部服务）
     services  deploy/start.sh 启动的 Milvus + Redis
 
-覆盖 M0 迁移后的完整链路：入库 → 混合检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图（工具调用）→ MedicalAgent 多轮。
+覆盖搬家后的完整链路：入库 → 混合检索 → SimpleRAG → 多轮 RAG（含流式）→ 检索图（工具调用）→ MedicalAgent 多轮。
 假服务的回答是固定的，这里只验证链路通、数据流对，不评价回答质量。
 """
 import asyncio

@@ -1,9 +1,9 @@
 """Milvus 知识库（v2 的单行多向量布局）
 
-M0 只做迁移：表结构、检索与融合逻辑与 v2 一致；向量化改走 OpenAICompatEmbedding，
+搬家时只做迁移：表结构、检索与融合逻辑与 v2 一致；向量化改走 OpenAICompatEmbedding，
 返回值由 LangChain Document 换成字段相同的 LegacyDocument。
-M1 改造为 BaseVectorStorage 的实现 MilvusVectorStorage：一个 workspace 三个 collection（chunks / claims / aliases），
-表结构见 docs/architecture.md 第 6.2 节。
+之后改造为 BaseVectorStorage 的实现 MilvusVectorStorage：一个 workspace 三个 collection（chunks / claims / aliases），
+表结构见 docs/architecture.md 第 7.2 节。
 """
 import asyncio
 import logging
@@ -237,7 +237,7 @@ class MedicalHybridKnowledgeBase:
     async def flush(self):
         """把增长段封存落盘。
 
-        批量写入结束后调用：未封存的增长段只能走临时索引，召回明显偏低（M0 回归实测 Hit@10 相差约 13pp），
+        批量写入结束后调用：未封存的增长段只能走临时索引，召回明显偏低（搬家时回归实测 Hit@10 相差约 13pp），
         而 Milvus 何时自动封存不确定，不 flush 的话同一份数据的检索结果会随时机变化。
         """
         await asyncio.to_thread(self.client.flush, self.milvus_config.collection_name)

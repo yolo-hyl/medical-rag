@@ -1,5 +1,5 @@
 # 模型配置：换模型 / 换服务商时改这里
-# 统一走 OpenAI 兼容协议（D2）：DashScope、vLLM、Ollama（/v1 端点）都按 base_url + api_key_env 接入
+# 统一走 OpenAI 兼容协议：DashScope、vLLM、Ollama（/v1 端点）都按 base_url + api_key_env 接入
 embedding:
   summary_dense:
     model: text-embedding-v4

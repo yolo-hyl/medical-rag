@@ -22,7 +22,7 @@ def read_secret(env_name: str) -> str:
 # =============================================================================
 # 存储与中间件（由 deploy/start.sh 启动，密码统一从环境变量读取）
 #
-# 服务地址都可以不配：没有配置地址时自动降级为嵌入式实现，不需要启动任何服务（D18）。
+# 服务地址都可以不配：没有配置地址时自动降级为嵌入式实现，不需要启动任何服务。
 #   Milvus  uri 为空    → Milvus Lite（本地文件 lite_path）
 #   Redis   host 为空   → fakeredis（进程内存）
 #   Postgres host 为空  → SQLite（本地文件 sqlite_path）
@@ -101,7 +101,7 @@ class Neo4jConfig(BaseModel):
 
 
 # =============================================================================
-# 模型（D2：统一走 OpenAI 兼容协议，DashScope / vLLM / Ollama 的 /v1 端点都按这个接入）
+# 模型（统一走 OpenAI 兼容协议，DashScope / vLLM / Ollama 的 /v1 端点都按这个接入）
 # =============================================================================
 class _OpenAICompatBase(BaseModel):
     provider: Literal["openai"] = "openai"  # 以后接其他模型商时在这里扩展
@@ -151,14 +151,14 @@ class SparseConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """v2 的单行多向量布局；M1 改为由 Chunk 生成的 content / summary 两路"""
+    """v2 的单行多向量布局；之后改为由 Chunk 生成的 content / summary 两路"""
     summary_dense: DenseConfig
     text_dense: DenseConfig
     text_sparse: SparseConfig = Field(default_factory=SparseConfig)
 
 
 # =============================================================================
-# 数据字段映射（M1 起由各数据集的 loader 取代）
+# 数据字段映射（之后由各数据集的 loader 取代）
 # =============================================================================
 class DataConfig(BaseModel):
     summary_field: str = "question"
@@ -177,7 +177,7 @@ class DataConfig(BaseModel):
 
 
 # =============================================================================
-# 提示词（版本化管理，见 docs/architecture.md 第 11 节）
+# 提示词（版本化管理，见 docs/architecture.md 第 12 节）
 # =============================================================================
 class PromptsConfig(BaseModel):
     lang: Literal["zh", "en"] = "zh"
@@ -233,7 +233,7 @@ class AppConfig(BaseModel):
 
 
 # =============================================================================
-# 检索请求（M0 沿用 v2 的 Milvus 检索计划；M1 起对外只暴露 QueryParam，这些类型收进 storage/milvus.py）
+# 检索请求（目前沿用 v2 的 Milvus 检索计划；之后对外只暴露 QueryParam，这些类型收进 storage/milvus.py）
 # =============================================================================
 AnnsField = Literal["summary_dense", "text_dense", "text_sparse"]
 
